@@ -1,0 +1,13 @@
+flask>=3.0,<4
+mcp>=1.0.0
+pyagfs>=1.4.0
+openai>=1.0.0
+httpx[socks]>=0.27.1
+apscheduler>=3.10.0
+jinja2>=3.1.0
+pyyaml>=6.0
+python-dotenv>=1.0.0
+
+# Optional SWE-bench runner dependency. The smoke runner can skip this with
+# SWE_USE_DERIVED_LOCAL_ENV=0, but full SWE validation/local env setup needs it.
+swebench>=3.0.0

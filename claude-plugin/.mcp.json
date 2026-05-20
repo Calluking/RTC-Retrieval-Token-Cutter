@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "retrieval-token-cutter": {
+      "command": "${CLAUDE_PLUGIN_ROOT}/bin/rtc-mcp",
+      "args": [],
+      "env": {
+        "PYTHONPATH": "${CLAUDE_PLUGIN_ROOT}"
+      }
+    }
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "name": "retrieval-token-cutter",
+  "version": "0.2.0",
+  "description": "Terminal-first Retrieval Token Cutter plugin for Claude Code: hooks plus usable shell commands",
+  "author": {
+    "name": "Retrieval Token Cutter contributors"
+  },
+  "keywords": ["memory", "mcp", "code-search"],
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json"
+}

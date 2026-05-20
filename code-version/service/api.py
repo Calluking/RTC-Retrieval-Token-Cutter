@@ -1,0 +1,569 @@
+"""Service API layer - write operations for ContextEngine.
+
+This is the ONLY layer where RequestContext is mandatory and account_id is injected.
+All external calls must provide a RequestContext for multi-tenant isolation.
+
+Note: dev branch is WRITE-ONLY. Read operations (ReadAPI) are in phase1 branch.
+See CLAUDE.md §7 for tool interface spec and §8 for multi-tenant rules.
+"""
+
+import os
+import re
+import threading
+import uuid
+from dataclasses import dataclass
+from typing import Optional
+
+from core.logging_config import get_logger
+
+logger = get_logger(__name__)
+from core.interfaces import ContextFS, LLM, CandidateExtractor
+from core.models import RequestContext, CandidateMemory, WritePlan
+from commit import ContextWriter, CandidatePipeline, OutboxStore
+from extraction import Extractor
+from extraction.code_chunker import CodeChunk, chunk_source_code, detect_language
+from retrieval.path_anchor import guess_repo_rel_from_file_path, prepend_code_location_header
+
+
+class MemoryWriteAPI:
+    """Public API for memory write operations.
+
+    All methods enforce multi-tenant isolation via RequestContext.
+    Writes are orchestrated through the commit pipeline:
+    1. Extract candidates via CandidateExtractor
+    2. Plan write actions via MergePolicy
+    3. Build ContextNode via ArchiveBuilder
+    4. Write to storage via ContextFS
+    5. Register OutboxEvents for async indexing
+    """
+
+    def __init__(
+        self,
+        fs: ContextFS,
+        llm: LLM,
+        outbox_store: Optional[OutboxStore] = None,
+        schema_registry=None,
+        vector_index=None,
+        embedder=None,
+        uri_resolver=None,
+    ):
+        """Initialize the API with required dependencies.
+
+        Args:
+            fs: ContextFS implementation for persisting nodes
+            llm: LLM instance for extraction
+            outbox_store: OutboxStore for registering index events (optional)
+            schema_registry: Optional SchemaRegistry for dynamic tool generation
+            vector_index: Optional VectorIndex for prefetching existing memories
+            embedder: Optional Embedder for prefetching existing memories
+            uri_resolver: Optional URIResolver for prefetching existing memories
+        """
+        self._fs = fs
+        self._llm = llm
+        self._outbox_store = outbox_store
+        self._schema_registry = schema_registry
+        self._vector_index = vector_index
+        self._embedder = embedder
+        self._uri_resolver = uri_resolver
+
+        # Initialize write components
+        policy_router = None
+        if schema_registry is not None:
+            from commit.policy_router import PolicyRouter
+            policy_router = PolicyRouter(fs, registry=schema_registry, uri_resolver=uri_resolver)
+        self._writer = ContextWriter(fs, llm=self._llm, outbox_store=outbox_store, policy_router=policy_router)
+        self._pipeline = CandidatePipeline()
+        self._pipeline.set_extractors(self._create_extractors())
+        self._tasks: dict[str, dict] = {}
+        self._tasks_lock = threading.Lock()
+
+    def _create_extractors(self) -> list[CandidateExtractor]:
+        """Create default extractors for the pipeline.
+
+        Returns:
+            List of CandidateExtractor instances (single tool-use Extractor)
+        """
+        try:
+            from extraction.prompts import PromptManager
+            from providers.unified_config import get_config
+
+            pm = PromptManager(code_mode=get_config().code_toggle)
+            return [Extractor(
+                self._llm,
+                prompt_manager=pm,
+                schema_registry=self._schema_registry,
+                fs=self._fs,
+                vector_index=self._vector_index,
+                embedder=self._embedder,
+                uri_resolver=self._uri_resolver,
+            )]
+        except Exception:
+            # Fallback to hardcoded prompts if template system unavailable
+            return [Extractor(
+                self._llm,
+                schema_registry=self._schema_registry,
+                fs=self._fs,
+                vector_index=self._vector_index,
+                embedder=self._embedder,
+                uri_resolver=self._uri_resolver,
+            )]
+
+    def commit_session(
+        self,
+        messages: list[dict],
+        ctx: RequestContext,
+        confidence_threshold: float = 0.5,
+        wait: bool = True,
+        session_time=None,
+        session_summary: str = "",
+        tool_stats_text: str = "",
+    ) -> dict:
+        """Commit a conversation session to memory.
+
+        This is the main entry point for writing memories.
+        Extracts candidates from messages, filters by confidence,
+        and writes to storage.
+
+        Args:
+            messages: List of message dicts with "role" and "content"
+                      Example: [{"role": "user", "content": "..."}, ...]
+            ctx: RequestContext for this operation
+            confidence_threshold: Minimum confidence for writing (default 0.5)
+            wait: If True, block until extraction completes (default).
+                  If False, return immediately with task_id for async processing.
+            session_time: Optional datetime for temporal resolution (defaults to now).
+            session_summary: Optional summary of previously extracted content.
+            tool_stats_text: Optional tool usage statistics text.
+
+        Returns:
+            Dict with write results:
+            {
+                "candidates_extracted": int,
+                "candidates_filtered": int,
+                "writes_completed": int,
+                "writes_skipped": int,
+                "writes_failed": int,
+                "plans": list[WritePlan dict],
+                "task_id": str (only if wait=False),
+                "status": "processing" (only if wait=False)
+            }
+        """
+        # Step 1: Extract candidates
+        candidates = self._pipeline.extract(
+            messages, ctx, session_time=session_time,
+            session_summary=session_summary,
+            tool_stats_text=tool_stats_text,
+        )
+
+        # Step 2: Filter by confidence
+        filtered = self._pipeline.filter_by_confidence(candidates, confidence_threshold)
+
+        # Step 3: Deduplicate
+        deduplicated = self._pipeline.deduplicate(filtered)
+
+        # Step 4: Write candidates (ContextWriter handles outbox registration internally)
+        plans = self._writer.write_candidates(deduplicated, ctx)
+
+        # Compile results
+        writes_completed = sum(1 for p in plans if p.action != "skip")
+        writes_skipped = sum(1 for p in plans if p.action == "skip")
+        writes_failed = len(deduplicated) - writes_completed - writes_skipped
+
+        result = {
+            "candidates_extracted": len(candidates),
+            "candidates_filtered": len(candidates) - len(filtered),
+            "writes_completed": writes_completed,
+            "writes_skipped": writes_skipped,
+            "writes_failed": writes_failed,
+            "plans": [
+                {
+                    "action": p.action,
+                    "target_uri": p.target_uri,
+                    "merged_fields": p.merged_fields,
+                }
+                for p in plans
+            ],
+        }
+
+        # For async mode, return task_id
+        if not wait:
+            task_id = str(uuid.uuid4())
+            with self._tasks_lock:
+                self._tasks[task_id] = {"status": "completed", "result": result}
+            result["task_id"] = task_id
+            result["status"] = "completed"
+
+        return result
+
+    def commit_session_async(
+        self,
+        messages: list[dict],
+        ctx: RequestContext,
+        confidence_threshold: float = 0.5,
+        session_time=None,
+        session_summary: str = "",
+        tool_stats_text: str = "",
+    ) -> str:
+        """Fire-and-forget version of commit_session.
+
+        Dispatches extraction + write to a background thread and returns
+        a task_id immediately.  The caller can poll get_task_status(task_id)
+        for the result.
+
+        Returns:
+            task_id string for tracking the background job.
+        """
+        task_id = str(uuid.uuid4())
+        with self._tasks_lock:
+            self._tasks[task_id] = {"status": "processing", "result": None}
+
+        def _run():
+            try:
+                result = self.commit_session(
+                    messages=messages,
+                    ctx=ctx,
+                    confidence_threshold=confidence_threshold,
+                    wait=True,
+                    session_time=session_time,
+                    session_summary=session_summary,
+                    tool_stats_text=tool_stats_text,
+                )
+                with self._tasks_lock:
+                    self._tasks[task_id] = {"status": "completed", "result": result}
+            except Exception as exc:
+                logger.error("commit_session_async failed for task %s: %s", task_id, exc, exc_info=True)
+                with self._tasks_lock:
+                    self._tasks[task_id] = {"status": "failed", "error": str(exc)}
+
+        t = threading.Thread(target=_run, daemon=True, name=f"commit-{task_id[:8]}")
+        t.start()
+        return task_id
+
+    def get_task_status(self, task_id: str) -> dict | None:
+        """Check status of an async commit_session task."""
+        with self._tasks_lock:
+            return self._tasks.get(task_id)
+
+    def write_memory(
+        self,
+        candidate: CandidateMemory,
+        ctx: RequestContext,
+    ) -> dict:
+        """Write a single candidate memory.
+
+        Bypasses extraction - use when you already have a CandidateMemory.
+
+        Args:
+            candidate: CandidateMemory to write
+            ctx: RequestContext for this operation
+
+        Returns:
+            Dict with write result:
+            {
+                "action": str,
+                "target_uri": str,
+                "merged_fields": dict,
+            }
+        """
+        plan = self._writer.write_candidate(candidate, ctx)
+
+        return {
+            "action": plan.action,
+            "target_uri": plan.target_uri,
+            "merged_fields": plan.merged_fields,
+        }
+
+    def write_memories(
+        self,
+        candidates: list[CandidateMemory],
+        ctx: RequestContext,
+        parallel: bool = True,
+    ) -> list[dict]:
+        """Write multiple candidate memories.
+
+        Args:
+            candidates: List of CandidateMemory to write
+            ctx: RequestContext for these operations
+            parallel: If True, write in parallel (default True)
+
+        Returns:
+            List of write result dicts
+        """
+        # Deduplicate first
+        deduplicated = self._pipeline.deduplicate(candidates)
+
+        # Write (ContextWriter handles outbox registration internally)
+        if parallel:
+            plans = self._writer.write_candidates_parallel(deduplicated, ctx)
+        else:
+            plans = self._writer.write_candidates(deduplicated, ctx)
+
+        return [
+            {
+                "action": p.action,
+                "target_uri": p.target_uri,
+                "merged_fields": p.merged_fields,
+            }
+            for p in plans
+        ]
+
+    def ingest_code_file(
+        self,
+        *,
+        file_path: str,
+        source_code: str,
+        ctx: RequestContext,
+        project_id: str = "",
+        language: str | None = None,
+        parallel: bool = True,
+    ) -> dict:
+        """Chunk and write a source file as code memories."""
+        if not source_code:
+            return {
+                "chunks_total": 0,
+                "chunks_rejected": 0,
+                "chunks_accepted": 0,
+                "writes_completed": 0,
+                "writes_skipped": 0,
+                "writes_failed": 0,
+                "plans": [],
+            }
+
+        lang = detect_language(file_path, language)
+        chunks = chunk_source_code(source_code, file_path, language=lang)
+
+        chunks_rejected = 0
+        chunks_accepted = 0
+        candidates: list[CandidateMemory] = []
+        for chunk in chunks:
+            if self._should_reject_code_chunk(chunk.file_path, chunk.symbol):
+                chunks_rejected += 1
+                continue
+            chunks_accepted += 1
+            rel_display = (
+                guess_repo_rel_from_file_path(chunk.file_path)
+                or str(chunk.file_path or "").strip().replace("\\", "/")
+            )
+            sym = str(chunk.symbol or "").strip()
+            abstract_l0 = self._code_memory_l0(chunk)
+            overview_l1 = f"{sym} {rel_display}".strip() if sym or rel_display else "code"
+            ctags_entry = {
+                "name": chunk.symbol,
+                "kind": chunk.symbol_kind or "code",
+                "path": rel_display,
+                "line": chunk.start_line,
+                "end": chunk.end_line,
+                "language": chunk.language,
+                "signature": chunk.signature,
+            }
+            bm25_document = " ".join(
+                part for part in [
+                    f"path:{rel_display}",
+                    f"symbol:{chunk.symbol}",
+                    f"kind:{chunk.symbol_kind or 'code'}",
+                    f"signature:{chunk.signature or ''}",
+                    str(chunk.content or ""),
+                ] if part
+            )
+            code_metadata = {
+                "language": chunk.language,
+                "file_path": chunk.file_path,
+                "symbol": chunk.symbol,
+                "symbol_kind": chunk.symbol_kind or "code",
+                "start_line": chunk.start_line,
+                "end_line": chunk.end_line,
+                "chunk_hash": chunk.chunk_hash,
+                "project_id": project_id,
+                "signature": chunk.signature,
+                # L1 lexical/structural sidecar fields for hybrid retrieval.
+                "ctags": ctags_entry,
+                "bm25_document": bm25_document,
+            }
+            content_l2 = prepend_code_location_header(str(chunk.content or ""), code_metadata)
+            candidates.append(
+                CandidateMemory(
+                    category="code",
+                    owner_scope="agent",
+                    routing_key=chunk.routing_key,
+                    abstract=abstract_l0,
+                    overview=overview_l1,
+                    content=content_l2,
+                    confidence=0.95,
+                    code_metadata=code_metadata,
+                )
+            )
+
+        results = self.write_memories(candidates, ctx, parallel=parallel)
+        writes_completed = sum(1 for result in results if result["action"] != "skip")
+        writes_skipped = sum(1 for result in results if result["action"] == "skip")
+        writes_failed = len(candidates) - writes_completed - writes_skipped
+        return {
+            "chunks_total": len(chunks),
+            "chunks_rejected": chunks_rejected,
+            "chunks_accepted": chunks_accepted,
+            "writes_completed": writes_completed,
+            "writes_skipped": writes_skipped,
+            "writes_failed": writes_failed,
+            "plans": results,
+        }
+
+    @staticmethod
+    def _should_reject_code_chunk(file_path: str, symbol: str) -> bool:
+        """Reject synthetic/internal diagnostic chunks from code memory."""
+        path = str(file_path or "").strip().lower()
+        base = os.path.basename(path)
+        sym = str(symbol or "").strip().lower()
+
+        if base.startswith("turn_"):
+            return True
+        if "diag_many_funcs.py" in path:
+            return True
+        if re.fullmatch(r"ast_h\d+", sym) and "diag" in path:
+            return True
+        return False
+
+    @staticmethod
+    def _code_memory_l0(chunk: CodeChunk) -> str:
+        """L0 text for code memories."""
+        sym = str(chunk.symbol or "").strip()
+        kind = chunk.symbol_kind or "code"
+        label = {
+            "function": "function",
+            "async_function": "async function",
+            "type": "type",
+            "code": "code",
+        }.get(kind, "code")
+        if sym:
+            return f"{sym} {label}"
+        return label
+
+
+# Singleton instances for simple usage
+# In production, use dependency injection
+_default_write_api: Optional[MemoryWriteAPI] = None
+
+
+def init_write_api(
+    fs: ContextFS,
+    llm: LLM,
+    outbox_store: Optional[OutboxStore] = None,
+    schema_registry=None,
+    vector_index=None,
+    embedder=None,
+    uri_resolver=None,
+) -> MemoryWriteAPI:
+    """Initialize the global write API instance.
+
+    Args:
+        fs: ContextFS implementation
+        llm: LLM instance for extraction
+        outbox_store: Optional OutboxStore for async indexing
+        schema_registry: Optional SchemaRegistry for dynamic tool generation
+        vector_index: Optional VectorIndex for prefetching existing memories
+        embedder: Optional Embedder for prefetching existing memories
+        uri_resolver: Optional URIResolver for prefetching existing memories
+
+    Returns:
+        Configured MemoryWriteAPI instance
+    """
+    global _default_write_api
+    _default_write_api = MemoryWriteAPI(
+        fs, llm, outbox_store, schema_registry,
+        vector_index, embedder, uri_resolver,
+    )
+    return _default_write_api
+
+
+def get_write_api() -> Optional[MemoryWriteAPI]:
+    """Get the global write API instance.
+
+    Returns:
+        MemoryWriteAPI if initialized, None otherwise
+    """
+    return _default_write_api
+
+
+# ---------------------------------------------------------------------------
+# Read / Search API
+# ---------------------------------------------------------------------------
+
+from core.errors import AccessDeniedError, ValidationError as CoreValidationError
+from core.models import (
+    RetrievalConfig,
+    RetrievedBlock,
+    RetrieverMode,
+    SearchMemoryResult,
+)
+from retrieval.pipeline import RetrievalPipeline
+from retrieval.context_reader import ContextReader
+
+
+class ReadAPI:
+    """Public API for memory search and read operations.
+
+    Exposes two tools consumed by AI agents:
+      - search_memory: semantic retrieval -> structured SearchMemoryResult
+      - read_memory: URI-based read -> RetrievedBlock with full content
+    """
+
+    def __init__(
+        self,
+        pipeline: RetrievalPipeline,
+        read_service: ContextReader | None = None,
+        config: RetrievalConfig | None = None,
+    ) -> None:
+        self._pipeline = pipeline
+        self._read_service = read_service
+        self._cfg = config or RetrievalConfig()
+
+    def search_memory(
+        self,
+        query: str,
+        ctx: RequestContext,
+        *,
+        top_k: int = 10,
+        categories: list[str] | None = None,
+        target_uri: str | None = None,
+        session_archive: dict | None = None,
+        score_threshold: float | None = None,
+        include_debug: bool = False,
+        mode: str = RetrieverMode.QUICK,
+        fill_content_for_top_k: int = 0,
+    ) -> SearchMemoryResult:
+        if not (query or "").strip():
+            raise CoreValidationError("query", "query must not be empty")
+        if top_k > self._cfg.max_top_k:
+            raise CoreValidationError("top_k", f"top_k={top_k} exceeds max {self._cfg.max_top_k}")
+
+        if target_uri:
+            prefix = f"ctx://{ctx.account_id}/"
+            if target_uri.startswith("ctx://") and not target_uri.startswith(prefix):
+                raise AccessDeniedError(target_uri, ctx.account_id, "target_uri account mismatch")
+
+        result = self._pipeline.run(
+            query, ctx,
+            top_k=top_k,
+            categories=categories,
+            target_uri=target_uri,
+            session_archive=session_archive,
+            score_threshold=score_threshold,
+            mode=mode,
+            fill_content_for_top_k=fill_content_for_top_k,
+        )
+
+        if not include_debug:
+            result.trace = None
+
+        return result
+
+    def read_memory(
+        self,
+        uri: str,
+        ctx: RequestContext,
+    ) -> RetrievedBlock:
+        """Read L2 md file content by URI.
+
+        Since search_memory already returns abstract in results,
+        read_memory only reads the actual md file content.
+        """
+        return self._read_service.read(uri, ctx=ctx)

@@ -1,0 +1,40 @@
+# Python/runtime caches
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.cache/
+
+# Local environment and secrets
+.env
+.env.*
+!.env.example
+env.sh
+
+# Generic local artifacts
+*.log
+*.tmp
+*.sqlite
+*.db
+
+# SWE runner generated state
+output_logs/
+
+scripts/SWE/claude/RTC/.cache/
+scripts/SWE/claude/RTC/repo/
+scripts/SWE/claude/RTC/output_logs/
+scripts/SWE/claude/RTC/include/
+scripts/SWE/claude/RTC/__pycache__/
+
+scripts/SWE/claude/legacy/.cache/
+scripts/SWE/claude/legacy/repo/
+scripts/SWE/claude/legacy/output_logs/
+scripts/SWE/claude/legacy/include/
+scripts/SWE/claude/legacy/__pycache__/
+
+# RTC/AGFS runtime data
+agfs-data/
+rtc-runtime/
+workspace.git/

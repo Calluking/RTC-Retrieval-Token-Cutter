@@ -1,0 +1,50 @@
+{
+  "description": "Retrieval Token Cutter hooks: compose on prompt submit, record mutating tool output, ingest transcript and stop local services on exit",
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${PY_BIN:-python3}\" \"${CLAUDE_PLUGIN_ROOT}/scripts/hook_compose.py\"",
+            "timeout": 35
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit|MultiEdit|Bash|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${PY_BIN:-python3}\" \"${CLAUDE_PLUGIN_ROOT}/scripts/hook_add_session_message.py\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/scripts/hook_stop.sh\"",
+            "timeout": 15
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${PY_BIN:-python3}\" \"${CLAUDE_PLUGIN_ROOT}/scripts/hook_after_turn.py\"",
+            "timeout": 20
+          }
+        ]
+      }
+    ]
+  }
+}
