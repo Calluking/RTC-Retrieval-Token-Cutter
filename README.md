@@ -1,21 +1,23 @@
-# Retrieval Token Cutter Claude Plugin
+# Retrieval Token Cutter
 
-Make a local codebase searchable from Claude Code with Retrieval Token Cutter semantic code search, MCP tools, and an attachable Claude plugin.
+Make a local codebase searchable from Claude Code or OpenClaw with Retrieval Token Cutter semantic code search and exact-replacement file edits.
 
 [中文文档](README_CN.md)
 
 ## What It Does
 
 - Loads a `retrieval-token-cutter` Claude Code plugin from `claude-plugin/`.
+- Loads a native OpenClaw plugin from `openclaw-plugin/`.
 - Starts the local MCP bridge, AGFS, and Retrieval Token Cutter backend when Claude needs them.
-- Injects the code-search/edit policy from `claude-plugin/prompts/code_policy_injection.txt`.
-- Exposes MCP tools for code search and MCP-based file edits.
-- Stops the Retrieval Token Cutter and AGFS services when Claude exits.
+- Starts the local AGFS and Retrieval Token Cutter backend when OpenClaw loads the plugin.
+- Injects a code-search/edit policy before code-looking prompts.
+- Exposes search and edit tools for code search and exact file edits.
+- Stops services started by the plugin when the host exits.
 
 ## Requirements
 
 - Python 3.11+
-- Claude Code CLI
+- Claude Code CLI, OpenClaw CLI, or both
 - `agfs-server`, either on `PATH` or built at `agfs/build/agfs-server`
 - An OpenAI-compatible embedding endpoint and API key
 - Conda, if you use the SWE runner's default task-specific local validation environment
@@ -24,7 +26,7 @@ Make a local codebase searchable from Claude Code with Retrieval Token Cutter se
 Install Python dependencies:
 
 ```bash
-cd /path/to/retrieval-token-cutter-claude-plugin
+cd /path/to/retrieval-token-cutter
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
@@ -57,7 +59,7 @@ From the project you want Claude to edit, run exactly:
 
 ```bash
 cd /path/to/project
-source /path/to/retrieval-token-cutter-claude-plugin/setup_env.sh
+source /path/to/retrieval-token-cutter/setup_env.sh
 claude --plugin-dir "$RTC_CLAUDE_PLUGIN_DIR"
 ```
 
@@ -68,6 +70,37 @@ Fix the bug in the add function
 ```
 
 For code-looking prompts, the plugin injects the MCP workflow policy automatically.
+
+## Start OpenClaw
+
+Install the linked OpenClaw plugin once from this repository:
+
+```bash
+cd /path/to/retrieval-token-cutter
+source setup_env.sh
+openclaw plugins install --link ./openclaw-plugin --dangerously-force-unsafe-install
+openclaw plugins enable retrieval-token-cutter
+openclaw gateway restart
+```
+
+OpenClaw requires `--dangerously-force-unsafe-install` because this plugin auto-starts local RTC/AGFS processes through Node's child process API.
+
+From the project you want OpenClaw to edit, start a fresh local TUI session:
+
+```bash
+cd /path/to/project
+source /path/to/retrieval-token-cutter/setup_env.sh
+export RTC_WORKSPACE_ROOT="$PWD"
+openclaw chat --local --session "rtc-$(date +%s)"
+```
+
+`openclaw chat` is the official local embedded TUI entrypoint. It is equivalent to `openclaw tui --local`. Passing a fresh `--session` avoids reusing the default `agent:<agent>:main` history.
+
+Then ask:
+
+```text
+Fix the bug in the add function.
+```
 
 ## Verify
 
@@ -86,12 +119,36 @@ mcp__plugin_retrieval-token-cutter_retrieval-token-cutter__search_code
 mcp__plugin_retrieval-token-cutter_retrieval-token-cutter__edit_file
 ```
 
+For OpenClaw, verify the plugin is loaded:
+
+```bash
+openclaw plugins inspect retrieval-token-cutter --runtime --json
+```
+
+The runtime output should include:
+
+```text
+rtc_health
+rtc_index_codebase
+rtc_search_code
+rtc_edit_file
+```
+
+To confirm a run used search, inspect the latest session log:
+
+```bash
+latest=$(ls -t ~/.openclaw/agents/*/sessions/*.jsonl | grep -v trajectory | head -1)
+rg -n "rtc_search_code|rtc_edit_file|python -m pytest|Fix the bug" "$latest"
+```
+
 ## Useful Files
 
 - [env.sh.example](env.sh.example): local environment configuration template. Copy it to ignored `env.sh`.
 - [setup_env.sh](setup_env.sh): one-line setup script used before starting Claude.
 - [claude-plugin/](claude-plugin/): local Claude Code plugin.
+- [openclaw-plugin/](openclaw-plugin/): native OpenClaw plugin.
 - [claude-plugin/prompts/code_policy_injection.txt](claude-plugin/prompts/code_policy_injection.txt): injected MCP coding policy.
+- [openclaw-plugin/prompts/code_policy_injection.txt](openclaw-plugin/prompts/code_policy_injection.txt): injected OpenClaw coding policy.
 - [scripts/SWE/claude/RTC/](scripts/SWE/claude/RTC/): Retrieval Token Cutter plugin-based SWE Lite runner.
 - [scripts/SWE/claude/legacy/](scripts/SWE/claude/legacy/): plain Claude SWE Lite runner without the plugin.
 

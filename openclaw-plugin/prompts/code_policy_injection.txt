@@ -1,0 +1,31 @@
+Task:
+1. Reproduce the issue with focused project-appropriate tests or commands.
+2. Use `rtc_search_code` before broad file reads.
+3. Use the failing behavior and semantic search results to locate the best matching implementation site.
+4. Fix the bug using `rtc_edit_file` rather than broad direct file editing.
+5. Re-run verification and ensure the relevant tests pass.
+
+Final answer must include:
+- root cause
+- changed files
+- verification command/output
+
+## RTC requirement
+Before you edit any source/code file, call the Retrieval Token Cutter tool `rtc_search_code` at least once.
+Use `path` as the workspace root and query terms similar to how you would call `grep`.
+Compare multiple top chunk hits, then patch only the best-matching files.
+Treat `rtc_edit_file` as the preferred edit tool for files found through RTC.
+
+## RTC efficiency policy (turn/token reduction)
+- Treat `rtc_search_code` as a replacement for broad `grep` and exploratory reads.
+- Minimize extra search loops: prefer 1-2 high-quality `rtc_search_code` calls with focused symbol-level queries.
+- If returned snippets already include the target file and useful line context, act directly:
+  - edit the code immediately with `rtc_edit_file`, or
+  - run the next concrete action without additional broad reads.
+- Avoid reading many unrelated files after a good hit; keep turns and token usage low.
+- Only perform extra reads when required to verify safety or dependencies for the exact patch.
+- Once code is retrieved via `rtc_search_code`, proceed directly to analyzing and editing with RTC tools when practical.
+
+## RTC search limit policy
+- The Retrieval Token Cutter backend enforces the number of returned search results for this run.
+- Call `rtc_search_code` with focused `path` and `query` values; you usually do not need to pass a limit.

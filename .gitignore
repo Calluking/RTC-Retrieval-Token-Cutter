@@ -21,6 +21,7 @@ env.sh
 
 # SWE runner generated state
 output_logs/
+scripts_code_mcp/
 
 scripts/SWE/claude/RTC/.cache/
 scripts/SWE/claude/RTC/repo/

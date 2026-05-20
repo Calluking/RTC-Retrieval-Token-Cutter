@@ -1,21 +1,23 @@
-# Retrieval Token Cutter Claude 插件
+# Retrieval Token Cutter
 
-让 Claude Code 通过 Retrieval Token Cutter 语义代码搜索、MCP 工具和本地 Claude 插件理解并修改本地代码库。
+让 Claude Code 或 OpenClaw 通过 Retrieval Token Cutter 语义代码搜索和精确替换编辑来理解并修改本地代码库。
 
 [English README](README.md)
 
 ## 功能
 
 - 从 `claude-plugin/` 加载本地 `retrieval-token-cutter` Claude Code 插件。
-- Claude 需要时自动启动 MCP bridge、AGFS 和 Retrieval Token Cutter 后端，并在 Claude 退出时停止它们。
-- 自动注入 `claude-plugin/prompts/code_policy_injection.txt` 中的代码搜索/编辑策略。
-- 提供代码搜索和 MCP 文件编辑工具。
-- Claude 退出后自动停止由插件启动的后端服务。
+- 从 `openclaw-plugin/` 加载原生 OpenClaw 插件。
+- Claude 需要时自动启动 MCP bridge、AGFS 和 Retrieval Token Cutter 后端。
+- OpenClaw 加载插件时自动启动本地 AGFS 和 Retrieval Token Cutter 后端。
+- 对代码相关 prompt 自动注入代码搜索/编辑策略。
+- 提供代码搜索和精确文件编辑工具。
+- 宿主退出后自动停止由插件启动的服务。
 
 ## 环境要求
 
 - Python 3.11+
-- Claude Code CLI
+- Claude Code CLI、OpenClaw CLI，或两者都安装
 - `agfs-server`，需要在 `PATH` 中，或构建在 `agfs/build/agfs-server`
 - OpenAI 兼容的 embedding endpoint 和 API key
 - Conda，如果使用 SWE runner 默认的任务专用本地验证环境
@@ -24,7 +26,7 @@
 安装 Python 依赖：
 
 ```bash
-cd /path/to/retrieval-token-cutter-claude-plugin
+cd /path/to/retrieval-token-cutter
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
@@ -57,7 +59,7 @@ export RTC_EMBEDDING_MODEL="text-embedding-3-large"
 
 ```bash
 cd /path/to/project
-source /path/to/retrieval-token-cutter-claude-plugin/setup_env.sh
+source /path/to/retrieval-token-cutter/setup_env.sh
 claude --plugin-dir "$RTC_CLAUDE_PLUGIN_DIR"
 ```
 
@@ -68,6 +70,37 @@ Fix the bug in the add function
 ```
 
 对看起来像代码任务的请求，插件会自动注入 MCP 工作流策略。
+
+## 启动 OpenClaw
+
+先在本仓库中安装一次 OpenClaw 本地链接插件：
+
+```bash
+cd /path/to/retrieval-token-cutter
+source setup_env.sh
+openclaw plugins install --link ./openclaw-plugin --dangerously-force-unsafe-install
+openclaw plugins enable retrieval-token-cutter
+openclaw gateway restart
+```
+
+OpenClaw 要求 `--dangerously-force-unsafe-install`，因为这个插件会通过 Node child process API 自动启动本地 RTC/AGFS 进程。
+
+在你希望 OpenClaw 修改的项目目录中，用新的本地 TUI session 启动：
+
+```bash
+cd /path/to/project
+source /path/to/retrieval-token-cutter/setup_env.sh
+export RTC_WORKSPACE_ROOT="$PWD"
+openclaw chat --local --session "rtc-$(date +%s)"
+```
+
+`openclaw chat` 是官方 local embedded TUI 入口，等价于 `openclaw tui --local`。加上新的 `--session` 可以避免复用默认的 `agent:<agent>:main` 历史。
+
+然后直接输入：
+
+```text
+Fix the bug in the add function.
+```
 
 ## 验证
 
@@ -86,12 +119,36 @@ mcp__plugin_retrieval-token-cutter_retrieval-token-cutter__search_code
 mcp__plugin_retrieval-token-cutter_retrieval-token-cutter__edit_file
 ```
 
+对于 OpenClaw，先验证插件已经加载：
+
+```bash
+openclaw plugins inspect retrieval-token-cutter --runtime --json
+```
+
+运行时输出中应包含：
+
+```text
+rtc_health
+rtc_index_codebase
+rtc_search_code
+rtc_edit_file
+```
+
+如果要确认某次运行确实用了搜索，可以查看最新 session log：
+
+```bash
+latest=$(ls -t ~/.openclaw/agents/*/sessions/*.jsonl | grep -v trajectory | head -1)
+rg -n "rtc_search_code|rtc_edit_file|python -m pytest|Fix the bug" "$latest"
+```
+
 ## 重要文件
 
 - [env.sh.example](env.sh.example)：本地环境配置模板。复制为已被 git 忽略的 `env.sh`。
 - [setup_env.sh](setup_env.sh)：启动 Claude 前 source 的设置脚本。
 - [claude-plugin/](claude-plugin/)：本地 Claude Code 插件。
+- [openclaw-plugin/](openclaw-plugin/)：原生 OpenClaw 插件。
 - [claude-plugin/prompts/code_policy_injection.txt](claude-plugin/prompts/code_policy_injection.txt)：自动注入的 MCP 代码策略。
+- [openclaw-plugin/prompts/code_policy_injection.txt](openclaw-plugin/prompts/code_policy_injection.txt)：自动注入的 OpenClaw 代码策略。
 - [scripts/SWE/claude/RTC/](scripts/SWE/claude/RTC/)：基于 Retrieval Token Cutter 插件的 SWE Lite runner。
 - [scripts/SWE/claude/legacy/](scripts/SWE/claude/legacy/)：不加载插件的 plain Claude SWE Lite runner。
 

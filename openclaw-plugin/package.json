@@ -1,0 +1,40 @@
+{
+  "name": "retrieval-token-cutter",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "OpenClaw plugin for Retrieval Token Cutter code search and edits.",
+  "license": "MIT",
+  "main": "src/index.ts",
+  "files": [
+    "openclaw.plugin.json",
+    "package.json",
+    "README.md",
+    "README_CN.md",
+    "prompts",
+    "src"
+  ],
+  "scripts": {
+    "plugin:validate": "openclaw plugins validate --entry ./src/index.ts"
+  },
+  "peerDependencies": {
+    "openclaw": ">=2026.5.17"
+  },
+  "openclaw": {
+    "plugin": "./openclaw.plugin.json",
+    "extensions": [
+      "./src/index.ts"
+    ],
+    "runtimeExtensions": [
+      "./src/index.ts"
+    ],
+    "compat": {
+      "pluginApi": ">=2026.5.17"
+    }
+  },
+  "keywords": [
+    "openclaw",
+    "plugin",
+    "code-search",
+    "retrieval-token-cutter"
+  ]
+}
