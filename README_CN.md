@@ -19,6 +19,7 @@
 - Python 3.11+
 - Claude Code CLI、OpenClaw CLI，或两者都安装
 - `agfs-server`，需要在 `PATH` 中，或构建在 `agfs/build/agfs-server`
+- Go 1.21+，如果要从本仓库构建内置 AGFS server
 - OpenAI 兼容的 embedding endpoint 和 API key
 - Conda，如果使用 SWE runner 默认的任务专用本地验证环境
 - `requirements.txt` 已包含 `httpx[socks]`，支持 SOCKS proxy URL；`setup_env.sh` 也会为 `127.0.0.1`、`localhost` 和 `::1` 设置 `NO_PROXY`/`no_proxy`，避免本地 RTC/AGFS 请求走 HTTP(S)/SOCKS 代理。
@@ -30,6 +31,12 @@ cd /path/to/retrieval-token-cutter
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
+```
+
+如果 `agfs-server` 不在 `PATH` 中，可以构建仓库内置版本：
+
+```bash
+(cd agfs && make build)
 ```
 
 如果使用 `uv`，安装插件和 SWE runner 需要的 extras：
@@ -45,7 +52,7 @@ uv sync --extra mcp --extra swe
 ```bash
 cp env.sh.example env.sh
 export RTC_EMBEDDING_API_KEY="<your-key>"
-export RTC_EMBEDDING_BASE_URL="https://api.openai.com"
+export RTC_EMBEDDING_BASE_URL="https://api.openai-proxy.org"
 export RTC_EMBEDDING_MODEL="text-embedding-3-large"
 ```
 
@@ -81,6 +88,14 @@ source setup_env.sh
 openclaw plugins install --link ./openclaw-plugin --dangerously-force-unsafe-install
 openclaw plugins enable retrieval-token-cutter
 openclaw gateway restart
+```
+
+如果之前已经从另一个 checkout 安装过这个插件，先卸载旧的注册项，让
+OpenClaw 重新链接到当前 clone：
+
+```bash
+openclaw plugins uninstall retrieval-token-cutter --force
+openclaw plugins install --link ./openclaw-plugin --dangerously-force-unsafe-install
 ```
 
 OpenClaw 要求 `--dangerously-force-unsafe-install`，因为这个插件会通过 Node child process API 自动启动本地 RTC/AGFS 进程。
@@ -151,17 +166,42 @@ rg -n "rtc_search_code|rtc_edit_file|python -m pytest|Fix the bug" "$latest"
 - [openclaw-plugin/prompts/code_policy_injection.txt](openclaw-plugin/prompts/code_policy_injection.txt)：自动注入的 OpenClaw 代码策略。
 - [scripts/SWE/claude/RTC/](scripts/SWE/claude/RTC/)：基于 Retrieval Token Cutter 插件的 SWE Lite runner。
 - [scripts/SWE/claude/legacy/](scripts/SWE/claude/legacy/)：不加载插件的 plain Claude SWE Lite runner。
+- [scripts/SWE/openclaw/RTC/](scripts/SWE/openclaw/RTC/)：基于 Retrieval Token Cutter OpenClaw 插件的 SWE Lite runner。
+- [scripts/SWE/openclaw/legacy/](scripts/SWE/openclaw/legacy/)：不加载插件的 plain OpenClaw SWE Lite runner。
 
 ## SWE Lite Runner
 
-SWE runner 会生成任务提示词，并用 print mode 启动 Claude：
+SWE runner 会生成任务提示词，并以非交互方式启动 Claude 或 OpenClaw。
+
+Claude legacy：
+
+```bash
+source scripts/SWE/claude/legacy/setup_swe_env.sh
+./scripts/SWE/claude/legacy/run_swe_task_lite_plain_claude.sh
+```
+
+Claude RTC/plugin：
 
 ```bash
 source scripts/SWE/claude/RTC/setup_swe_env.sh
 ./scripts/SWE/claude/RTC/run_swe_task_lite_rtc_plugin.sh
 ```
 
-更多说明见 [scripts/SWE/claude/RTC/README.md](scripts/SWE/claude/RTC/README.md) 和 [scripts/SWE/claude/legacy/README.md](scripts/SWE/claude/legacy/README.md)。
+OpenClaw legacy：
+
+```bash
+source scripts/SWE/openclaw/legacy/setup_swe_env.sh
+./scripts/SWE/openclaw/legacy/run_swe_task_lite_plain_openclaw.sh
+```
+
+OpenClaw RTC/plugin：
+
+```bash
+source scripts/SWE/openclaw/RTC/setup_swe_env.sh
+./scripts/SWE/openclaw/RTC/run_swe_task_lite_openclaw_rtc_plugin.sh
+```
+
+更多说明见 [scripts/SWE/claude/RTC/README.md](scripts/SWE/claude/RTC/README.md)、[scripts/SWE/claude/legacy/README.md](scripts/SWE/claude/legacy/README.md)、[scripts/SWE/openclaw/RTC/README.md](scripts/SWE/openclaw/RTC/README.md) 和 [scripts/SWE/openclaw/legacy/README.md](scripts/SWE/openclaw/legacy/README.md)。
 
 默认情况下，`scripts/SWE/claude/RTC/setup_swe_env.sh` 会设置 `SWE_VALIDATION_FORCE_LOCAL=1`。验证会在为任务派生出的本地 SWE-bench 环境中运行，而不是官方 Docker harness；这可以避开容器无法访问 GitHub 的网络问题。本地路径会根据 SWE-bench `TestSpec` 派生命令并应用 benchmark test patch，但官方 Docker harness 仍然是更严格的最终行为。设置 `SWE_VALIDATION_FORCE_LOCAL=0` 可以改用官方 Docker harness。
 

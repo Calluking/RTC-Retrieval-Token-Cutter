@@ -34,13 +34,19 @@ def adapt_env_commands(commands: list[str], base: str, prefix: Path, pkgs_dir: P
     out: list[str] = []
     prefix_q = shell_quote(str(prefix))
     pkgs_q = shell_quote(str(pkgs_dir))
+    requirements_q = shell_quote(str(pkgs_dir / "swebench-requirements.txt"))
     for cmd in commands:
         stripped = cmd.strip()
+        stripped = stripped.replace("$HOME/requirements.txt", requirements_q)
+        stripped = stripped.replace("${HOME}/requirements.txt", requirements_q)
         if re.fullmatch(r"source\s+\S+/bin/activate", stripped):
             out.append(f"source {shell_quote(base + '/bin/activate')}")
             continue
         if stripped == "conda activate testbed":
             out.append(f"conda activate {prefix_q}")
+            continue
+        if "conda activate testbed" in stripped:
+            out.append(stripped.replace("conda activate testbed", f"conda activate {prefix_q}"))
             continue
         if stripped.startswith("conda create -n testbed "):
             out.append(
@@ -114,11 +120,13 @@ def write_helper_script(path: Path, env_prefix: Path, base: str, cmd_log: Path) 
                 "  fi",
                 "}",
                 "trap cleanup EXIT",
+                'REMAINING_ARGS=("$@")',
                 "set --",
                 'source "$CONDA_BASE/bin/activate"',
                 'conda activate "$ENV_PREFIX"',
+                'set -- "${REMAINING_ARGS[@]}"',
                 'if [ "$MODE" = "reinstall" ]; then',
-                "  python -m pip install -v --no-use-pep517 --no-build-isolation -e .",
+                "  python -m pip install -v -e .",
                 "fi",
                 'if [ "$STDIN_PYTHON" = "1" ]; then',
                 '  TMP_STDIN_PY="$(mktemp "${TMPDIR:-/tmp}/swe-local-env-stdin-XXXXXX.py")"',

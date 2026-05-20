@@ -3,9 +3,9 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 RTC_CACHE_HOME="${RTC_CACHE_HOME:-${XDG_CACHE_HOME:-$HOME/.cache}/retrieval-token-cutter}"
-CACHE_DIR="${SWE_CACHE_DIR:-${RTC_SWE_CACHE_DIR:-$RTC_CACHE_HOME/swe/plain/cache}}"
+CACHE_DIR="${SWE_CACHE_DIR:-${RTC_SWE_CACHE_DIR:-$RTC_CACHE_HOME/swe/openclaw/plain/cache}}"
 PY_BIN="${PY_BIN:-python3}"
-export CLAUDE_MODEL="${CLAUDE_MODEL:-claude-haiku-4-5-20251001}"
+export OPENCLAW_MODEL="${OPENCLAW_MODEL:-deepseek/deepseek-v4-flash}"
 export SWE_LITE_INSTANCE_ID="${1:-${SWE_LITE_INSTANCE_ID:-pallets__flask-4045}}"
 export SWE_USE_DERIVED_LOCAL_ENV="${SWE_USE_DERIVED_LOCAL_ENV:-1}"
 export SWE_VALIDATION_FORCE_LOCAL="${SWE_VALIDATION_FORCE_LOCAL:-1}"
@@ -49,13 +49,15 @@ repo_base = os.environ["REPO_BASE"]
 cached_inst_path = os.path.join(repo_base, target, "instance.json") if target else ""
 
 def fetch_rows(offset: int, length: int = 100) -> dict:
-    query = urllib.parse.urlencode({
-        "dataset": DATASET,
-        "config": "default",
-        "split": SPLIT,
-        "offset": str(offset),
-        "length": str(length),
-    })
+    query = urllib.parse.urlencode(
+        {
+            "dataset": DATASET,
+            "config": "default",
+            "split": SPLIT,
+            "offset": str(offset),
+            "length": str(length),
+        }
+    )
     with urllib.request.urlopen(f"{BASE}?{query}", timeout=120) as response:
         return json.loads(response.read().decode("utf-8"))
 
@@ -143,7 +145,7 @@ Important SWE-bench rule:
   fail validation; do not preserve that assertion behavior.
 """
 
-prompt_path = os.path.join(repo_base, instance_id, "PROMPT_PLAIN.txt")
+prompt_path = os.path.join(repo_base, instance_id, "PROMPT_OPENCLAW_PLAIN.txt")
 with open(prompt_path, "w", encoding="utf-8") as f:
     f.write(prompt)
 print(f"export SWE_PROMPT_FILE={esc(os.path.abspath(prompt_path))}")
@@ -156,7 +158,7 @@ eval "$prompt_exports"
 
 STAMP="$(date +%Y%m%d-%H%M%S)"
 OUTPUT_ROOT="${SWE_OUTPUT_ROOT:-${RTC_SWE_OUTPUT_ROOT:-$SCRIPT_DIR/output_logs}}"
-EXPERIMENT_DIR="$OUTPUT_ROOT/${STAMP}-swe-lite-plain-r${RUN_IDX}-p$$"
+EXPERIMENT_DIR="$OUTPUT_ROOT/${STAMP}-swe-lite-openclaw-plain-r${RUN_IDX}-p$$"
 LOGS_DIR="$EXPERIMENT_DIR/logs"
 WORK_DIR="$EXPERIMENT_DIR/workspace"
 mkdir -p "$LOGS_DIR" "$EXPERIMENT_DIR"
@@ -211,14 +213,12 @@ cp -a "$SWE_PROMPT_FILE" "$WORK_DIR/TASK.md"
 cat >>"$WORK_DIR/TASK.md" <<EOF2
 
 ## Workspace
-- Claude is launched from the SWE task checkout: \`$WORK_DIR\`.
+- OpenClaw is launched from the SWE task checkout: \`$WORK_DIR\`.
 - Make edits for this SWE task in the task checkout: \`$WORK_DIR\`.
 EOF2
 
-CLAUDE_LOG="$LOGS_DIR/claude-code-debug.log"
-CLAUDE_STDOUT="$LOGS_DIR/claude-stdout.log"
-export CLAUDE_CODE_DEBUG_LOGS_DIR="${CLAUDE_CODE_DEBUG_LOGS_DIR:-$LOGS_DIR}"
-export CLAUDE_CODE_DEBUG_LOG_LEVEL="${CLAUDE_CODE_DEBUG_LOG_LEVEL:-debug}"
+OPENCLAW_STDOUT="$LOGS_DIR/openclaw-stdout.log"
+OPENCLAW_JSON="$LOGS_DIR/openclaw-agent.json"
 
 if [ "$SWE_USE_DERIVED_LOCAL_ENV" = "1" ]; then
   echo "[setup] Deriving local SWE-bench env ..." >&2
@@ -237,52 +237,35 @@ if [ "$SWE_USE_DERIVED_LOCAL_ENV" = "1" ]; then
     exit 1
   fi
   eval "$local_env_exports"
+  echo "[setup] Refreshing editable install for current SWE workspace ..." >&2
+  if ! (
+    cd "$WORK_DIR"
+    "$SWE_TASK_ENV_HELPER" --reinstall python - <<'PY'
+import sys
+print(sys.executable)
+PY
+  ) >> "$LOCAL_ENV_PREP_LOG" 2>&1; then
+    echo "[setup] Failed to refresh current workspace install; see $LOCAL_ENV_PREP_LOG" >&2
+    exit 1
+  fi
   cat >>"$WORK_DIR/TASK.md" <<EOF2
 
 ## Local SWE-bench Environment
+- This workspace has a task-specific environment derived from the official SWE-bench \`TestSpec\`.
 - Use \`$SWE_TASK_ENV_HELPER\` for reproduction and verification commands.
 - Prefer \`./RUN_IN_SWE_LOCAL_ENV.sh pytest -q <target>\`.
 - Do not use raw \`python\` or raw \`pytest\` for task verification; those may hit the host interpreter.
 EOF2
 fi
 
-set +e
-(
-  cd "$WORK_DIR"
-  export PYTHONPATH="$WORK_DIR${PYTHONPATH:+:$PYTHONPATH}"
-  claude --model "$CLAUDE_MODEL" \
-    --dangerously-skip-permissions \
-    --permission-mode bypassPermissions \
-    --print --debug-file "$CLAUDE_LOG" < "$WORK_DIR/TASK.md"
-) 2>&1 | tee "$CLAUDE_STDOUT"
-RC=${PIPESTATUS[0]}
-set -e
-
-WORK_SLUG="$("$PY_BIN" - "$WORK_DIR" <<'PY'
-import re
-import sys
-print(re.sub(r'[^A-Za-z0-9]+', '-', sys.argv[1]).rstrip('-'))
-PY
-)"
-PROJ_DIR="${HOME}/.claude/projects/${WORK_SLUG}"
-SESSION_JSONL=""
-for _jsonl_retry in 1 2 3 4 5; do
-  if [ -d "$PROJ_DIR" ]; then
-    SESSION_JSONL="$(find "$PROJ_DIR" -maxdepth 1 -type f -name '*.jsonl' | sort | tail -n 1 || true)"
-  fi
-  if [ -n "$SESSION_JSONL" ] && [ -f "$SESSION_JSONL" ]; then
-    break
-  fi
-  sleep 1
-done
-if [ -n "$SESSION_JSONL" ] && [ -f "$SESSION_JSONL" ]; then
-  cp -f "$SESSION_JSONL" "$LOGS_DIR/"
-  "$PY_BIN" "$SCRIPT_DIR/render_jsonl_turns.py" "$SESSION_JSONL" > "$EXPERIMENT_DIR/latest_session_render.txt" || true
-else
-  echo "[warn] Claude session JSONL not found under $PROJ_DIR" >&2
-fi
+OPENCLAW_AGENT_ID="${OPENCLAW_AGENT_ID:-swe-openclaw-plain-r${RUN_IDX}-p$$}"
+OPENCLAW_SESSION_ID="${OPENCLAW_SESSION_ID:-swe-openclaw-plain-r${RUN_IDX}-p$$}"
+OPENCLAW_TIMEOUT="${OPENCLAW_TIMEOUT:-900}"
 
 WORKSPACE_GIT_MOVED=0
+OPENCLAW_PLUGINS_BACKUP="$LOGS_DIR/openclaw-plugins-config.before.json"
+OPENCLAW_PLUGIN_PATCH="$LOGS_DIR/openclaw-disable-local-plugins.patch.json"
+
 disable_generated_workspace_git() {
   [ "${WORKSPACE_GIT_MOVED:-0}" = "0" ] || return 0
   [ -n "${WORK_DIR:-}" ] || return 0
@@ -298,10 +281,146 @@ EOF2
     WORKSPACE_GIT_MOVED=1
   fi
 }
-cleanup_generated_workspace() {
+
+restore_openclaw_plugin_config() {
+  [ -s "$OPENCLAW_PLUGINS_BACKUP" ] || return 0
+  "$PY_BIN" - "$OPENCLAW_PLUGINS_BACKUP" "$OPENCLAW_PLUGIN_PATCH" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+plugins = json.loads(Path(sys.argv[1]).read_text())
+if "allow" not in plugins:
+    plugins["allow"] = None
+Path(sys.argv[2]).write_text(json.dumps({"plugins": plugins}, indent=2) + "\n")
+PY
+  openclaw config patch --file "$OPENCLAW_PLUGIN_PATCH" \
+    > "$LOGS_DIR/openclaw-config-restore.log" 2>&1 || true
+}
+
+cleanup() {
+  restore_openclaw_plugin_config
   disable_generated_workspace_git
 }
-trap cleanup_generated_workspace EXIT
+trap cleanup EXIT
+
+# The user's OpenClaw config may have RTC enabled globally. For the legacy
+# runner, isolate the run by temporarily clearing local plugin load paths and
+# disabling the RTC entry, then restore the original plugin config on exit.
+openclaw config get plugins > "$OPENCLAW_PLUGINS_BACKUP" 2> "$LOGS_DIR/openclaw-config-get-plugins.stderr" || echo '{}' > "$OPENCLAW_PLUGINS_BACKUP"
+openclaw config set plugins.load.paths '[]' --strict-json \
+  > "$LOGS_DIR/openclaw-config-disable-load-paths.log" 2>&1 || true
+openclaw config set plugins.entries.retrieval-token-cutter.enabled false --strict-json \
+  > "$LOGS_DIR/openclaw-config-disable-rtc.log" 2>&1 || true
+OPENCLAW_MODEL_PROVIDER="${OPENCLAW_MODEL%%/*}"
+OPENCLAW_LEGACY_ALLOW_JSON="$("$PY_BIN" - "$OPENCLAW_MODEL_PROVIDER" <<'PY'
+import json
+import sys
+provider = (sys.argv[1] or "").strip()
+print(json.dumps([provider] if provider else []))
+PY
+)"
+openclaw config set plugins.allow "$OPENCLAW_LEGACY_ALLOW_JSON" --strict-json \
+  > "$LOGS_DIR/openclaw-config-allow-core-provider.log" 2>&1 || true
+
+echo "[setup] Creating OpenClaw agent $OPENCLAW_AGENT_ID for $WORK_DIR" >&2
+openclaw agents add "$OPENCLAW_AGENT_ID" \
+  --workspace "$WORK_DIR" \
+  --model "$OPENCLAW_MODEL" \
+  --non-interactive \
+  --json > "$LOGS_DIR/openclaw-agent-add.json" 2> "$LOGS_DIR/openclaw-agent-add.stderr" || true
+
+set +e
+(
+  cd "$WORK_DIR"
+  export PYTHONPATH="$WORK_DIR${PYTHONPATH:+:$PYTHONPATH}"
+  openclaw agent --local \
+    --agent "$OPENCLAW_AGENT_ID" \
+    --session-id "$OPENCLAW_SESSION_ID" \
+    --model "$OPENCLAW_MODEL" \
+    --timeout "$OPENCLAW_TIMEOUT" \
+    --message "$(cat "$WORK_DIR/TASK.md")" \
+    --json
+) 2>&1 | tee "$OPENCLAW_STDOUT" "$OPENCLAW_JSON"
+RC=${PIPESTATUS[0]}
+set -e
+
+SESSION_JSONL="${HOME}/.openclaw/agents/${OPENCLAW_AGENT_ID}/sessions/${OPENCLAW_SESSION_ID}.jsonl"
+SESSION_TRAJECTORY_JSONL="${HOME}/.openclaw/agents/${OPENCLAW_AGENT_ID}/sessions/${OPENCLAW_SESSION_ID}.trajectory.jsonl"
+SESSION_TRAJECTORY_PATH_JSON="${HOME}/.openclaw/agents/${OPENCLAW_AGENT_ID}/sessions/${OPENCLAW_SESSION_ID}.trajectory-path.json"
+for _jsonl_retry in 1 2 3 4 5; do
+  if [ -f "$SESSION_JSONL" ]; then
+    break
+  fi
+  sleep 1
+done
+if [ -n "$SESSION_JSONL" ] && [ -f "$SESSION_JSONL" ]; then
+  cp -f "$SESSION_JSONL" "$LOGS_DIR/"
+  [ -f "$SESSION_TRAJECTORY_JSONL" ] && cp -f "$SESSION_TRAJECTORY_JSONL" "$LOGS_DIR/"
+  [ -f "$SESSION_TRAJECTORY_PATH_JSON" ] && cp -f "$SESSION_TRAJECTORY_PATH_JSON" "$LOGS_DIR/"
+  "$PY_BIN" "$SCRIPT_DIR/render_jsonl_turns.py" "$SESSION_JSONL" > "$EXPERIMENT_DIR/latest_session_render.txt" || true
+  "$PY_BIN" - "$SESSION_JSONL" "$EXPERIMENT_DIR/openclaw_tool_summary.json" <<'PY' || true
+import json
+import sys
+from pathlib import Path
+
+session = Path(sys.argv[1])
+summary_path = Path(sys.argv[2])
+tool_calls = []
+tool_results = []
+for idx, raw in enumerate(session.read_text(errors="replace").splitlines(), 1):
+    try:
+        obj = json.loads(raw)
+    except Exception:
+        continue
+    if obj.get("type") != "message":
+        continue
+    msg = obj.get("message") or {}
+    content = msg.get("content") or []
+    if isinstance(content, list):
+        for item in content:
+            if isinstance(item, dict) and item.get("type") == "toolCall":
+                tool_calls.append(
+                    {
+                        "line": idx,
+                        "name": item.get("name"),
+                        "arguments": item.get("arguments"),
+                    }
+                )
+    if msg.get("role") == "toolResult":
+        tool_results.append(
+            {
+                "line": idx,
+                "name": msg.get("toolName"),
+                "isError": msg.get("isError"),
+            }
+        )
+
+summary = {
+    "session_jsonl": str(session),
+    "tool_calls": tool_calls,
+    "tool_results": tool_results,
+    "tool_names": sorted({str(t.get("name")) for t in tool_calls if t.get("name")}),
+    "has_rtc_search_code": any(t.get("name") == "rtc_search_code" for t in tool_calls),
+    "has_rtc_edit_file": any(t.get("name") == "rtc_edit_file" for t in tool_calls),
+    "has_successful_rtc_edit_file": any(
+        t.get("name") == "rtc_edit_file" and not t.get("isError") for t in tool_results
+    ),
+    "used_builtin_edit": any(t.get("name") == "edit" for t in tool_calls),
+    "edited_test_file": any(
+        t.get("name") in {"rtc_edit_file", "edit", "write", "file_write"}
+        and (
+            "/test" in str((t.get("arguments") or {}).get("file_path") or (t.get("arguments") or {}).get("path") or "")
+            or str((t.get("arguments") or {}).get("file_path") or (t.get("arguments") or {}).get("path") or "").split("/")[-1].startswith("test_")
+        )
+        for t in tool_calls
+    ),
+}
+summary_path.write_text(json.dumps(summary, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+PY
+else
+  echo "[warn] OpenClaw session JSONL not found: $SESSION_JSONL" >&2
+fi
 
 VALIDATION_RC=0
 if [ "${SWE_SKIP_VALIDATION:-0}" = "1" ]; then
@@ -328,6 +447,9 @@ else
     > "$LOGS_DIR/validation-summary.json" 2> "$LOGS_DIR/validation-stderr.log"
   VALIDATION_RC=$?
   set -e
+  if [ "$VALIDATION_RC" -ne 0 ]; then
+    echo "[validate] Validation failed for $SWE_INSTANCE_ID; see $EXPERIMENT_DIR/validation.md" >&2
+  fi
 fi
 
 disable_generated_workspace_git
@@ -336,9 +458,11 @@ echo "Instance: $SWE_INSTANCE_ID ($SWE_REPO @ $SWE_BASE_COMMIT)"
 echo "Experiment dir: $EXPERIMENT_DIR"
 echo "Workspace: $WORK_DIR"
 echo "Logs: $LOGS_DIR"
-echo "Claude project dir: ${PROJ_DIR:-<unset>}"
-echo "Claude session jsonl: ${SESSION_JSONL:-<unset>}"
+echo "OpenClaw agent: ${OPENCLAW_AGENT_ID:-<unset>}"
+echo "OpenClaw session: ${OPENCLAW_SESSION_ID:-<unset>}"
+echo "OpenClaw session jsonl: ${SESSION_JSONL:-<unset>}"
 echo "Latest session render: $EXPERIMENT_DIR/latest_session_render.txt"
+echo "OpenClaw tool summary: $EXPERIMENT_DIR/openclaw_tool_summary.json"
 echo "Validation markdown: $EXPERIMENT_DIR/validation.md"
 echo "Validation json: $EXPERIMENT_DIR/validation.json"
 echo "Validation rc: $VALIDATION_RC"

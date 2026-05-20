@@ -299,7 +299,7 @@ def command_start(args: argparse.Namespace) -> int:
     env.setdefault("RTC_CODE_TOGGLE", "true")
     env.setdefault("EMBEDDING_PROVIDER", "openai")
     env.setdefault("RTC_EMBEDDING_MODEL", "text-embedding-3-large")
-    env.setdefault("RTC_EMBEDDING_BASE_URL", "https://api.openai.com")
+    env.setdefault("RTC_EMBEDDING_BASE_URL", "https://api.openai-proxy.org")
     env.setdefault("RTC_START_LOCAL_EMBED_SERVER", "0")
 
     agfs_config = run / "agfs-config.yaml"

@@ -30,7 +30,7 @@ Claude 通过 `--plugin-dir` 加载这个插件。插件会启动内置 MCP serv
 cd ..
 cp env.sh.example env.sh
 export RTC_EMBEDDING_API_KEY="<your-key>"
-export RTC_EMBEDDING_BASE_URL="https://api.openai.com"
+export RTC_EMBEDDING_BASE_URL="https://api.openai-proxy.org"
 export RTC_EMBEDDING_MODEL="text-embedding-3-large"
 ```
 
@@ -44,7 +44,7 @@ export RTC_EMBEDDING_MODEL="text-embedding-3-large"
 
 ```bash
 cd /path/to/project
-source /path/to/retrieval-token-cutter-claude-plugin/setup_env.sh
+source /path/to/retrieval-token-cutter/setup_env.sh
 claude --plugin-dir "$RTC_CLAUDE_PLUGIN_DIR"
 ```
 

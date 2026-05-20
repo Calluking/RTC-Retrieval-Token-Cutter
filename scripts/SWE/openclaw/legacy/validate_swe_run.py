@@ -15,7 +15,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent
 CACHE_ROOT = ROOT / ".cache"
 OFFICIAL_HARNESS_ROOT = CACHE_ROOT / "official_harness"
-OFFICIAL_MODEL_NAME = "plain-claude-validator"
+OFFICIAL_MODEL_NAME = "rtc-validator"
 SWEBENCH_SITECUSTOMIZE = ROOT / "swebench_sitecustomize"
 
 

@@ -37,7 +37,7 @@ Create `env.sh` from the repository template:
 ```bash
 cp env.sh.example env.sh
 export RTC_EMBEDDING_API_KEY="<your-key>"
-export RTC_EMBEDDING_BASE_URL="https://api.openai.com"
+export RTC_EMBEDDING_BASE_URL="https://api.openai-proxy.org"
 export RTC_EMBEDDING_MODEL="text-embedding-3-large"
 ```
 
@@ -47,7 +47,7 @@ the official SWE-bench `TestSpec` environment commands.
 ## Run
 
 ```bash
-cd /path/to/retrieval-token-cutter-claude-plugin
+cd /path/to/retrieval-token-cutter
 source scripts/SWE/claude/RTC/setup_swe_env.sh
 ./scripts/SWE/claude/RTC/run_swe_task_lite_rtc_plugin.sh
 ```
@@ -82,7 +82,7 @@ talk over `127.0.0.1`.
 For a faster smoke run:
 
 ```bash
-cd /path/to/retrieval-token-cutter-claude-plugin
+cd /path/to/retrieval-token-cutter
 source scripts/SWE/claude/RTC/setup_swe_env.sh
 SWE_USE_DERIVED_LOCAL_ENV=0 \
 SWE_SKIP_VALIDATION=1 \

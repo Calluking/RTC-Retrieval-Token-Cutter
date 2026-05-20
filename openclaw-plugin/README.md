@@ -27,7 +27,7 @@ Keep secret embedding settings in your shell environment, for example in `~/.bas
 
 ```bash
 export RTC_EMBEDDING_API_KEY="<your-key>"
-export RTC_EMBEDDING_BASE_URL="https://api.openai.com"
+export RTC_EMBEDDING_BASE_URL="https://api.openai-proxy.org"
 export RTC_EMBEDDING_MODEL="text-embedding-3-large"
 ```
 
@@ -39,6 +39,14 @@ source setup_env.sh
 openclaw plugins install --link ./openclaw-plugin --dangerously-force-unsafe-install
 openclaw plugins enable retrieval-token-cutter
 openclaw gateway restart
+```
+
+If this plugin was already installed from another checkout, uninstall the old
+registration first and relink the current clone:
+
+```bash
+openclaw plugins uninstall retrieval-token-cutter --force
+openclaw plugins install --link ./openclaw-plugin --dangerously-force-unsafe-install
 ```
 
 OpenClaw asks for the explicit unsafe-install flag because this plugin starts

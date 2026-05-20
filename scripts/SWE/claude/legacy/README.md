@@ -40,7 +40,7 @@ To run a different SWE-bench Lite instance:
 Runs are written under:
 
 ```text
-${XDG_CACHE_HOME:-~/.cache}/retrieval-token-cutter/swe/plain/output_logs/<timestamp>-swe-lite-plain-r<run>-p<pid>/
+scripts/SWE/claude/legacy/output_logs/<timestamp>-swe-lite-plain-r<run>-p<pid>/
 ```
 
 Set `SWE_OUTPUT_ROOT=/path/to/output_logs` to write runs somewhere else.
@@ -50,6 +50,7 @@ Useful files:
 - `workspace/TASK.md`
 - `logs/claude-code-debug.log`
 - `logs/claude-stdout.log`
+- `logs/<claude-session>.jsonl`
 - `latest_session_render.txt`
 - `validation.md`
 - `validation.json`

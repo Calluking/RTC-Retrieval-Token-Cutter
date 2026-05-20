@@ -19,6 +19,7 @@ Make a local codebase searchable from Claude Code or OpenClaw with Retrieval Tok
 - Python 3.11+
 - Claude Code CLI, OpenClaw CLI, or both
 - `agfs-server`, either on `PATH` or built at `agfs/build/agfs-server`
+- Go 1.21+, if you build the bundled AGFS server from this repository
 - An OpenAI-compatible embedding endpoint and API key
 - Conda, if you use the SWE runner's default task-specific local validation environment
 - `requirements.txt` includes `httpx[socks]` so SOCKS proxy URLs work with OpenAI-compatible clients. `setup_env.sh` also exports `NO_PROXY`/`no_proxy` for `127.0.0.1`, `localhost`, and `::1` so local RTC/AGFS calls bypass HTTP(S)/SOCKS proxies.
@@ -30,6 +31,12 @@ cd /path/to/retrieval-token-cutter
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
+```
+
+If `agfs-server` is not already on `PATH`, build the bundled server:
+
+```bash
+(cd agfs && make build)
 ```
 
 If you use `uv`, install the plugin and SWE runner extras:
@@ -45,7 +52,7 @@ Create local `env.sh` from [env.sh.example](env.sh.example) before running Claud
 ```bash
 cp env.sh.example env.sh
 export RTC_EMBEDDING_API_KEY="<your-key>"
-export RTC_EMBEDDING_BASE_URL="https://api.openai.com"
+export RTC_EMBEDDING_BASE_URL="https://api.openai-proxy.org"
 export RTC_EMBEDDING_MODEL="text-embedding-3-large"
 ```
 
@@ -81,6 +88,14 @@ source setup_env.sh
 openclaw plugins install --link ./openclaw-plugin --dangerously-force-unsafe-install
 openclaw plugins enable retrieval-token-cutter
 openclaw gateway restart
+```
+
+If you previously installed the plugin from another checkout, uninstall the old
+registration first so OpenClaw relinks this clone:
+
+```bash
+openclaw plugins uninstall retrieval-token-cutter --force
+openclaw plugins install --link ./openclaw-plugin --dangerously-force-unsafe-install
 ```
 
 OpenClaw requires `--dangerously-force-unsafe-install` because this plugin auto-starts local RTC/AGFS processes through Node's child process API.
@@ -151,17 +166,42 @@ rg -n "rtc_search_code|rtc_edit_file|python -m pytest|Fix the bug" "$latest"
 - [openclaw-plugin/prompts/code_policy_injection.txt](openclaw-plugin/prompts/code_policy_injection.txt): injected OpenClaw coding policy.
 - [scripts/SWE/claude/RTC/](scripts/SWE/claude/RTC/): Retrieval Token Cutter plugin-based SWE Lite runner.
 - [scripts/SWE/claude/legacy/](scripts/SWE/claude/legacy/): plain Claude SWE Lite runner without the plugin.
+- [scripts/SWE/openclaw/RTC/](scripts/SWE/openclaw/RTC/): Retrieval Token Cutter OpenClaw plugin-based SWE Lite runner.
+- [scripts/SWE/openclaw/legacy/](scripts/SWE/openclaw/legacy/): plain OpenClaw SWE Lite runner without the plugin.
 
 ## SWE Lite Runner
 
-The SWE runner builds a task prompt and starts Claude in print mode:
+The SWE runners build a task prompt and start Claude or OpenClaw non-interactively.
+
+Claude legacy:
+
+```bash
+source scripts/SWE/claude/legacy/setup_swe_env.sh
+./scripts/SWE/claude/legacy/run_swe_task_lite_plain_claude.sh
+```
+
+Claude RTC/plugin:
 
 ```bash
 source scripts/SWE/claude/RTC/setup_swe_env.sh
 ./scripts/SWE/claude/RTC/run_swe_task_lite_rtc_plugin.sh
 ```
 
-See [scripts/SWE/claude/RTC/README.md](scripts/SWE/claude/RTC/README.md) and [scripts/SWE/claude/legacy/README.md](scripts/SWE/claude/legacy/README.md).
+OpenClaw legacy:
+
+```bash
+source scripts/SWE/openclaw/legacy/setup_swe_env.sh
+./scripts/SWE/openclaw/legacy/run_swe_task_lite_plain_openclaw.sh
+```
+
+OpenClaw RTC/plugin:
+
+```bash
+source scripts/SWE/openclaw/RTC/setup_swe_env.sh
+./scripts/SWE/openclaw/RTC/run_swe_task_lite_openclaw_rtc_plugin.sh
+```
+
+See [scripts/SWE/claude/RTC/README.md](scripts/SWE/claude/RTC/README.md), [scripts/SWE/claude/legacy/README.md](scripts/SWE/claude/legacy/README.md), [scripts/SWE/openclaw/RTC/README.md](scripts/SWE/openclaw/RTC/README.md), and [scripts/SWE/openclaw/legacy/README.md](scripts/SWE/openclaw/legacy/README.md).
 
 By default, `scripts/SWE/claude/RTC/setup_swe_env.sh` sets `SWE_VALIDATION_FORCE_LOCAL=1`. Validation then runs in the local task-specific SWE-bench environment instead of the official Docker harness, which avoids Docker network problems on machines where containers cannot reach GitHub. This local path derives commands from the SWE-bench `TestSpec` and applies the benchmark test patch, but the official Docker harness is still the stricter final behavior. Set `SWE_VALIDATION_FORCE_LOCAL=0` to try the official Docker harness.
 

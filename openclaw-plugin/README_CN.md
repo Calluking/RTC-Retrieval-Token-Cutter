@@ -27,7 +27,7 @@ pip install -r requirements.txt
 
 ```bash
 export RTC_EMBEDDING_API_KEY="<your-key>"
-export RTC_EMBEDDING_BASE_URL="https://api.openai.com"
+export RTC_EMBEDDING_BASE_URL="https://api.openai-proxy.org"
 export RTC_EMBEDDING_MODEL="text-embedding-3-large"
 ```
 
@@ -39,6 +39,14 @@ source setup_env.sh
 openclaw plugins install --link ./openclaw-plugin --dangerously-force-unsafe-install
 openclaw plugins enable retrieval-token-cutter
 openclaw gateway restart
+```
+
+如果这个插件之前已经从另一个 checkout 安装过，先卸载旧注册项，再重新链接
+当前 clone：
+
+```bash
+openclaw plugins uninstall retrieval-token-cutter --force
+openclaw plugins install --link ./openclaw-plugin --dangerously-force-unsafe-install
 ```
 
 OpenClaw 要求显式加上 unsafe-install 参数，是因为这个插件会通过 Node

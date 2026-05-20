@@ -35,6 +35,18 @@ scripts/SWE/claude/legacy/output_logs/
 scripts/SWE/claude/legacy/include/
 scripts/SWE/claude/legacy/__pycache__/
 
+scripts/SWE/openclaw/RTC/.cache/
+scripts/SWE/openclaw/RTC/repo/
+scripts/SWE/openclaw/RTC/output_logs/
+scripts/SWE/openclaw/RTC/include/
+scripts/SWE/openclaw/RTC/__pycache__/
+
+scripts/SWE/openclaw/legacy/.cache/
+scripts/SWE/openclaw/legacy/repo/
+scripts/SWE/openclaw/legacy/output_logs/
+scripts/SWE/openclaw/legacy/include/
+scripts/SWE/openclaw/legacy/__pycache__/
+
 # RTC/AGFS runtime data
 agfs-data/
 rtc-runtime/
