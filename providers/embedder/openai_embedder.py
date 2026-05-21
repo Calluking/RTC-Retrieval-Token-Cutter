@@ -93,8 +93,10 @@ class OpenAIEmbedder(Embedder):
         self._client = OpenAI(http_client=http_client, **client_kwargs)
         self.token_tracker = TokenTracker()
 
-    # Max chars per text for embedding (~7500 tokens at 4 chars/token, under 8191 limit)
+    # Max chars per text for embedding. This is a heuristic because the
+    # provider enforces token limits, not character limits.
     _MAX_EMBED_CHARS: Final[int] = 30000
+    _EMBED_CHAR_RETRY_CAPS: Final[tuple[int, ...]] = (30000, 25000, 20000, 15000, 10000)
 
     def embed_texts(self, texts: list[str]) -> list[list[float]]:
         """Embed a batch of texts using OpenAI API.
@@ -118,34 +120,35 @@ class OpenAIEmbedder(Embedder):
                 "OpenAI API supports max 2048 texts per request."
             )
 
-        # Truncate texts exceeding token limit to avoid 429 errors
-        truncated = []
-        for t in texts:
-            if len(t) > self._MAX_EMBED_CHARS:
+        # Truncate texts exceeding token limits. The provider enforces tokens,
+        # so retry with stricter character caps for token-dense inputs.
+        embeddings = None
+        last_exc: Exception | None = None
+        for index, max_chars in enumerate(self._EMBED_CHAR_RETRY_CAPS):
+            truncated = self._truncate_texts(texts, max_chars)
+            try:
+                embeddings = self._embed_truncated_texts(truncated)
+                break
+            except Exception as e:
+                last_exc = e
+                next_caps = self._EMBED_CHAR_RETRY_CAPS[index + 1:]
+                next_cap = next(
+                    (cap for cap in next_caps if any(len(t) > cap for t in texts)),
+                    None,
+                )
+                if next_cap is None:
+                    break
                 logger.warning(
-                    "Truncating text for embedding: %d -> %d chars",
-                    len(t), self._MAX_EMBED_CHARS,
+                    "embed_texts failed with %d-char cap; retrying with %d-char cap: %s",
+                    max_chars,
+                    next_cap,
+                    e,
                 )
-                truncated.append(t[:self._MAX_EMBED_CHARS])
-            else:
-                truncated.append(t)
 
-        try:
-            if self._multimodal:
-                embeddings = self._embed_multimodal(truncated)
-            else:
-                response = self._client.embeddings.create(
-                    input=truncated,
-                    model=self._model
-                )
-                embeddings = [item.embedding for item in response.data]
-                usage = getattr(response, "usage", None)
-                if usage:
-                    total_tokens = getattr(usage, "total_tokens", 0) or 0
-                    self.token_tracker.record_embed(total_tokens)
-        except Exception as e:
-            logger.error("embed_texts FAILED: %s", e)
-            raise
+        if embeddings is None:
+            logger.error("embed_texts FAILED: %s", last_exc)
+            raise last_exc or RuntimeError("embedding request failed")
+
         for emb in embeddings:
             if len(emb) != self._dimension:
                 raise ValueError(
@@ -153,6 +156,34 @@ class OpenAIEmbedder(Embedder):
                     f"got {len(emb)}. Check model configuration."
                 )
 
+        return embeddings
+
+    def _truncate_texts(self, texts: list[str], max_chars: int) -> list[str]:
+        truncated = []
+        for t in texts:
+            if len(t) > max_chars:
+                logger.warning(
+                    "Truncating text for embedding: %d -> %d chars",
+                    len(t), max_chars,
+                )
+                truncated.append(t[:max_chars])
+            else:
+                truncated.append(t)
+        return truncated
+
+    def _embed_truncated_texts(self, texts: list[str]) -> list[list[float]]:
+        if self._multimodal:
+            return self._embed_multimodal(texts)
+
+        response = self._client.embeddings.create(
+            input=texts,
+            model=self._model,
+        )
+        embeddings = [item.embedding for item in response.data]
+        usage = getattr(response, "usage", None)
+        if usage:
+            total_tokens = getattr(usage, "total_tokens", 0) or 0
+            self.token_tracker.record_embed(total_tokens)
         return embeddings
 
     def _embed_multimodal(self, texts: list[str]) -> list[list[float]]:

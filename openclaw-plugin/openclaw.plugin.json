@@ -8,6 +8,7 @@
   },
   "contracts": {
     "tools": [
+      "rtc_read",
       "rtc_search_code",
       "rtc_edit_file",
       "rtc_index_codebase",
@@ -15,11 +16,14 @@
     ]
   },
   "toolMetadata": {
+    "rtc_read": {
+      "description": "Read file contents. For code tasks, use only when rtc_search_code misses the needed exact text after a focused retry."
+    },
     "rtc_search_code": {
-      "description": "Search source code with Retrieval Token Cutter before broad file reads."
+      "description": "Search source, tests, docs, and release notes. content_excerpt is exact editable file text for rtc_edit_file.old_string; do not re-read files already returned with usable snippets."
     },
     "rtc_edit_file": {
-      "description": "Edit a source file through exact string replacement after RTC search."
+      "description": "Edit source/doc files through exact replacement. Build old_string from exact RTC search snippets; if exact text is still missing after search retry, use a narrow read."
     },
     "rtc_index_codebase": {
       "description": "Warm or report workspace indexing state."
@@ -71,6 +75,12 @@
         "default": true,
         "description": "Inject RTC code-search/edit policy into code-like prompts."
       },
+      "readToolPolicy": {
+        "type": "string",
+        "default": "advisory",
+        "enum": ["off", "advisory", "guard"],
+        "description": "Controls the RTC read replacement. advisory exposes rtc_read; guard exposes rtc_read and blocks native read."
+      },
       "searchLimit": {
         "type": "number",
         "default": 5,
@@ -120,6 +130,10 @@
     },
     "injectCodePolicy": {
       "label": "Inject code policy"
+    },
+    "readToolPolicy": {
+      "label": "Read tool policy",
+      "advanced": true
     },
     "accountId": {
       "label": "RTC account id",

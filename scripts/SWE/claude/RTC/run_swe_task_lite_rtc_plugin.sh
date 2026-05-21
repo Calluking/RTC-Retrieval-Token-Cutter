@@ -301,12 +301,14 @@ if ! [[ "$RUN_IDX" =~ ^[0-9]+$ ]]; then
   echo "RUN_IDX must be a non-negative integer, got: $RUN_IDX" >&2
   exit 1
 fi
-export RTC_HTTP_PORT="${RTC_HTTP_PORT:-$((RTC_BASE_PORT + RUN_IDX))}"
-export AGFS_HTTP_PORT="${AGFS_HTTP_PORT:-$((AGFS_BASE_PORT + RUN_IDX))}"
 if [ "${SWE_PLUGIN_ISOLATE_PORTS:-1}" = "1" ]; then
+  export RTC_HTTP_PORT="$((RTC_BASE_PORT + RUN_IDX))"
+  export AGFS_HTTP_PORT="$((AGFS_BASE_PORT + RUN_IDX))"
   export RTC_URL="http://127.0.0.1:${RTC_HTTP_PORT}"
   export AGFS_BASE_URL="http://127.0.0.1:${AGFS_HTTP_PORT}"
 else
+  export RTC_HTTP_PORT="${RTC_HTTP_PORT:-$((RTC_BASE_PORT + RUN_IDX))}"
+  export AGFS_HTTP_PORT="${AGFS_HTTP_PORT:-$((AGFS_BASE_PORT + RUN_IDX))}"
   export RTC_URL="${RTC_URL:-http://127.0.0.1:${RTC_HTTP_PORT}}"
   export AGFS_BASE_URL="${AGFS_BASE_URL:-http://127.0.0.1:${AGFS_HTTP_PORT}}"
 fi

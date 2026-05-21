@@ -1,6 +1,7 @@
 import { spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
+import { URL } from "node:url";
 import type { ResolvedConfig } from "./config.ts";
 import { getJson } from "./http.ts";
 
@@ -40,9 +41,11 @@ export class RtcService {
     }
 
     const pyBin = this.pythonBin();
+    const rtcPort = this.portFromUrl(this.config.rtcUrl);
     const env = {
       ...process.env,
       RTC_URL: this.config.rtcUrl,
+      ...(rtcPort ? { RTC_HTTP_PORT: rtcPort } : {}),
       RTC_RUNTIME_DIR: this.config.runtimeDir,
       RTC_WORKSPACE_ROOT: this.config.workspaceRoot,
       NO_PROXY: ["127.0.0.1", "localhost", "::1", process.env.NO_PROXY].filter(Boolean).join(","),
@@ -110,6 +113,18 @@ export class RtcService {
         "Or set PY_BIN=/path/to/python before starting OpenClaw.",
       ].join(" "),
     );
+  }
+
+  private portFromUrl(rawUrl: string): string | undefined {
+    try {
+      const parsed = new URL(rawUrl);
+      if (parsed.port) return parsed.port;
+      if (parsed.protocol === "https:") return "443";
+      if (parsed.protocol === "http:") return "80";
+    } catch {
+      return undefined;
+    }
+    return undefined;
   }
 
   private pythonHasRuntimeDeps(candidate: string): boolean {

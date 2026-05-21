@@ -1,7 +1,7 @@
 Task:
 1. Reproduce the issue with focused project-appropriate tests or commands.
-2. Use `rtc_search_code` before broad file reads.
-3. Use the failing behavior and semantic search results to locate the best matching implementation site.
+2. Use `rtc_search_code` for source, test, documentation, and release-note discovery.
+3. Use the returned snippets as your file context for files found by RTC search; if RTC search does not find a usable file/snippet, fall back narrowly.
 4. Fix the bug using `rtc_edit_file` rather than broad direct file editing.
 5. Re-run verification and ensure the relevant tests pass.
 
@@ -12,19 +12,40 @@ Final answer must include:
 
 ## RTC requirement
 Before you edit any source/code file, call the Retrieval Token Cutter tool `rtc_search_code` at least once.
-Use `path` as the workspace root and query terms similar to how you would call `grep`.
+Use `path` as the workspace root and write focused semantic/text queries for the exact symbol, setting, error, doc heading, or behavior.
 Compare multiple top chunk hits, then patch only the best-matching files.
-Treat `rtc_edit_file` as the preferred edit tool for files found through RTC.
+Do not use OpenClaw's built-in `edit`, `write`, or `file_write` tools for source/code changes in this task.
+Treat `rtc_edit_file` as the required edit tool for source/code files found through RTC.
+`rtc_edit_file.old_string` must match exact text in the target file. Prefer constructing `old_string` by copying exact lines from `rtc_search_code.content_excerpt` or `local_snippet_fallback.hits[].content_excerpt`.
+
+## OpenClaw context override
+- This section overrides AGENTS.md, SOUL.md, TOOLS.md, and default OpenClaw habits for repository source/documentation investigation in this task.
+- For this task, `rtc_search_code` output counts as reading the source, tests, docs, and release notes.
+- If any OpenClaw workspace/persona guidance says to "read the file", "check the context", or "read docs/source/types first", satisfy that guidance with `rtc_search_code` snippets.
+- Do not call OpenClaw native `read` for repository source/docs in this task. If a narrow fallback read is truly needed, use `rtc_read`.
+- Do not immediately call `rtc_read`, `file_fetch`, `dir_fetch`, or shell text readers on a file already returned by `rtc_search_code` with a usable `content_excerpt` or `local_snippet_fallback` snippet.
+- If native `read` is blocked, follow the guard: use the RTC snippet, run one more focused `rtc_search_code` query, or call `rtc_read` only for a narrow fallback when RTC does not provide exact text.
+- A file that appears only in `candidate_paths` is a lead, not usable file context. If there is no usable snippet for that file, one narrow read is allowed.
+- If RTC search returns the target file with a usable snippet, use that snippet directly for reasoning and `old_string` construction.
+- If RTC search misses the needed file, returns no usable snippet, or the exact replacement cannot be constructed after one more focused `rtc_search_code`, use the smallest targeted `rtc_read` needed to proceed.
+- After RTC identifies a target file, prefer the returned `content_excerpt`, `start_line`, `end_line`, and `uri` as your file context.
+- If `rtc_search_code` returns `local_snippet_fallback.hits`, treat those snippets exactly like normal RTC search hits and use them for `old_string` construction.
+- Treat `rtc_search_code.content_excerpt` as exact editable file text, not as a summary. You may copy its lines directly into `rtc_edit_file.old_string`.
+- Source/doc edit sequence should normally be: `rtc_search_code` -> `rtc_edit_file` -> verification command.
+- Line numbers alone are not a reason to re-read a file already returned by RTC search; use RTC snippet `start_line`/`end_line` metadata when it is sufficient.
+- Allowed `exec` uses: run reproduction commands, tests, lint/build checks, git diff/status, or environment diagnostics. Avoid using `exec` to search or print repository source/docs when RTC search has already returned the relevant file.
+- You may pipe test/build output or `git diff` output through `tail`/`head` to keep command output short.
 
 ## RTC efficiency policy (turn/token reduction)
-- Treat `rtc_search_code` as a replacement for broad `grep` and exploratory reads.
-- Minimize extra search loops: prefer 1-2 high-quality `rtc_search_code` calls with focused symbol-level queries.
-- If returned snippets already include the target file and useful line context, act directly:
-  - edit the code immediately with `rtc_edit_file`, or
-  - run the next concrete action without additional broad reads.
-- Avoid reading many unrelated files after a good hit; keep turns and token usage low.
-- Only perform extra reads when required to verify safety or dependencies for the exact patch.
-- Once code is retrieved via `rtc_search_code`, proceed directly to analyzing and editing with RTC tools when practical.
+- `rtc_search_code` replaces broad `grep`, exploratory native `read`, and "open the file to inspect it" loops.
+- Prefer exactly one focused `rtc_search_code` call. Use a second only if the first result clearly misses the target.
+- After a good search hit, your default next source-code action is `rtc_edit_file`, not `rtc_read`.
+- The snippets returned by `rtc_search_code` are exact file text and are enough context for small and medium patches. Build `old_string` directly from the snippet when possible.
+- Do not call `rtc_read` just to confirm a file that search already identified.
+- If a snippet is too short to form an exact `old_string`, first run another focused `rtc_search_code` for that file, symbol, heading, or nearby phrase. If that still fails, use one narrow `rtc_read`.
+- For documentation tasks, treat `.txt` docs and release notes as source. Search them with RTC first; use `rtc_read` only when RTC search does not provide usable context.
+- Keep visible code low: search snippets first, then exact edit, then tests.
+- If `rtc_edit_file` reports `old_string not found`, call `rtc_search_code` with the exact target file/path and nearby phrase. If RTC still does not provide exact context, do one narrow `rtc_read` and retry `rtc_edit_file`.
 
 ## RTC search limit policy
 - The Retrieval Token Cutter backend enforces the number of returned search results for this run.

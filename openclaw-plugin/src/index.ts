@@ -17,14 +17,20 @@ export default definePluginEntry({
     const config = resolveConfig(pluginConfig, pluginRoot, repoRoot);
     const service = new RtcService(config, api.logger ?? console);
 
-    api.registerService?.({
-      id: "retrieval-token-cutter",
-      start: () => service.start(),
-      stop: () => service.stop(),
+    registerRtcTools(api, config, async () => {
+      if (config.autoStart) await service.start();
     });
-
-    registerRtcTools(api, config, () => service.start());
     registerPolicyHook(api, config);
+    if (config.readToolPolicy === "guard" && typeof api.on === "function") {
+      api.on("before_tool_call", (event: any) => {
+        if (event?.toolName !== "read") return undefined;
+        return {
+          block: true,
+          blockReason:
+            "Native read is disabled by Retrieval Token Cutter for this run. Use rtc_search_code for code context, or rtc_read only when RTC search misses the needed exact text after a focused retry.",
+        };
+      });
+    }
 
     api.logger?.info?.(
       `retrieval-token-cutter: registered tools for workspace ${config.workspaceRoot} using ${config.rtcUrl}`,

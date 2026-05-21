@@ -266,19 +266,27 @@ def edit_file(
     except Exception as exc:
         refresh = {"ok": False, "background_refresh_dispatched": False, "error": str(exc)}
 
-    return json.dumps(
-        {
+    relative_path = target.relative_to(Path(root).expanduser().resolve()).as_posix()
+    edit_debug = (os.environ.get("RTC_EDIT_DEBUG") or "").strip().lower() in {"1", "true", "yes", "on"}
+    if edit_debug:
+        payload = {
             "ok": True,
             "file_path": str(target),
-            "relative_path": target.relative_to(Path(root).expanduser().resolve()).as_posix(),
+            "relative_path": relative_path,
             "replace_all": replace_all,
             "occurrences": occurrences,
             "bytes_before": len(original.encode("utf-8")),
             "bytes_after": len(updated.encode("utf-8")),
             "memory_refresh": refresh,
-        },
-        indent=2,
-    )
+        }
+    else:
+        payload = {
+            "ok": True,
+            "relative_path": relative_path,
+            "occurrences": occurrences,
+            "refresh_ok": bool(refresh.get("ok")) if isinstance(refresh, dict) else False,
+        }
+    return json.dumps(payload, separators=(",", ":"))
 
 
 def main() -> None:

@@ -312,12 +312,14 @@ if ! [[ "$RUN_IDX" =~ ^[0-9]+$ ]]; then
   echo "RUN_IDX must be a non-negative integer, got: $RUN_IDX" >&2
   exit 1
 fi
-export RTC_HTTP_PORT="${RTC_HTTP_PORT:-$((RTC_BASE_PORT + RUN_IDX))}"
-export AGFS_HTTP_PORT="${AGFS_HTTP_PORT:-$((AGFS_BASE_PORT + RUN_IDX))}"
 if [ "${SWE_PLUGIN_ISOLATE_PORTS:-1}" = "1" ]; then
+  export RTC_HTTP_PORT="$((RTC_BASE_PORT + RUN_IDX))"
+  export AGFS_HTTP_PORT="$((AGFS_BASE_PORT + RUN_IDX))"
   export RTC_URL="http://127.0.0.1:${RTC_HTTP_PORT}"
   export AGFS_BASE_URL="http://127.0.0.1:${AGFS_HTTP_PORT}"
 else
+  export RTC_HTTP_PORT="${RTC_HTTP_PORT:-$((RTC_BASE_PORT + RUN_IDX))}"
+  export AGFS_HTTP_PORT="${AGFS_HTTP_PORT:-$((AGFS_BASE_PORT + RUN_IDX))}"
   export RTC_URL="${RTC_URL:-http://127.0.0.1:${RTC_HTTP_PORT}}"
   export AGFS_BASE_URL="${AGFS_BASE_URL:-http://127.0.0.1:${AGFS_HTTP_PORT}}"
 fi
@@ -342,6 +344,8 @@ export RTC_DISABLE_AFTER_TURN_EXTRACTION="${RTC_DISABLE_AFTER_TURN_EXTRACTION:-1
 export RTC_START_LOCAL_EMBED_SERVER="${RTC_START_LOCAL_EMBED_SERVER:-0}"
 export RTC_OPENCLAW_AUTO_START="${RTC_OPENCLAW_AUTO_START:-1}"
 export RTC_OPENCLAW_AUTO_STOP="${RTC_OPENCLAW_AUTO_STOP:-1}"
+export RTC_OPENCLAW_READ_TOOL_POLICY="${RTC_OPENCLAW_READ_TOOL_POLICY:-guard}"
+export RTC_OPENCLAW_SOUL_POLICY="${RTC_OPENCLAW_SOUL_POLICY:-rtc}"
 export RTC_PLUGIN_START_WAIT="${RTC_PLUGIN_START_WAIT:-60}"
 
 ensure_embedding_backend() {
@@ -400,6 +404,7 @@ if [ "${RTC_FORCE_EMBED_DIM_ALIGN:-1}" = "1" ]; then
 fi
 
 WORKSPACE_GIT_MOVED=0
+RTC_BACKEND_MANAGED=0
 disable_generated_workspace_git() {
   [ "${WORKSPACE_GIT_MOVED:-0}" = "0" ] || return 0
   [ -n "${WORK_DIR:-}" ] || return 0
@@ -417,6 +422,9 @@ EOF2
 }
 cleanup_generated_workspace() {
   disable_generated_workspace_git
+  if [ "$RTC_BACKEND_MANAGED" = "1" ]; then
+    "$PY_BIN" "$CLAUDE_PLUGIN_DIR/scripts/rtc_terminal.py" stop --runtime-dir "$RTC_RUNTIME_DIR" >/dev/null 2>&1 || true
+  fi
 }
 trap cleanup_generated_workspace EXIT
 
@@ -429,6 +437,16 @@ export RTC_WORKSPACE_ROOT="$WORK_DIR"
 OPENCLAW_AGENT_ID="${OPENCLAW_AGENT_ID:-swe-openclaw-rtc-r${RUN_IDX}-p$$}"
 OPENCLAW_SESSION_ID="${OPENCLAW_SESSION_ID:-swe-openclaw-rtc-r${RUN_IDX}-p$$}"
 OPENCLAW_TIMEOUT="${OPENCLAW_TIMEOUT:-900}"
+
+echo "[setup] Starting RTC backend for this OpenClaw SWE run: $RTC_RUNTIME_DIR" >&2
+"$PY_BIN" "$CLAUDE_PLUGIN_DIR/scripts/rtc_terminal.py" start --runtime-dir "$RTC_RUNTIME_DIR" --wait "${RTC_PLUGIN_START_WAIT:-60}" >&2
+RTC_BACKEND_MANAGED=1
+
+# The runner starts the isolated backend before OpenClaw begins. Keep plugin
+# auto-start disabled inside OpenClaw so tools use this instance instead of
+# racing a second startup path with stale gateway environment.
+export RTC_OPENCLAW_AUTO_START=0
+export RTC_OPENCLAW_AUTO_STOP=0
 
 echo "[setup] Installing OpenClaw RTC plugin from $OPENCLAW_PLUGIN_DIR" >&2
 openclaw plugins uninstall retrieval-token-cutter --force \
@@ -455,12 +473,17 @@ openclaw config set plugins.entries.retrieval-token-cutter.config.runtimeDir "$(
   > "$LOGS_DIR/openclaw-config-runtime.log" 2>&1
 openclaw config set plugins.entries.retrieval-token-cutter.config.rtcUrl "$(json_string "$RTC_URL")" --strict-json \
   > "$LOGS_DIR/openclaw-config-rtc-url.log" 2>&1
-openclaw config set plugins.entries.retrieval-token-cutter.config.autoStart true --strict-json \
+openclaw config set plugins.entries.retrieval-token-cutter.config.autoStart false --strict-json \
   > "$LOGS_DIR/openclaw-config-autostart.log" 2>&1
-openclaw config set plugins.entries.retrieval-token-cutter.config.autoStop true --strict-json \
+openclaw config set plugins.entries.retrieval-token-cutter.config.autoStop false --strict-json \
   > "$LOGS_DIR/openclaw-config-autostop.log" 2>&1
 openclaw config set plugins.entries.retrieval-token-cutter.config.injectCodePolicy true --strict-json \
   > "$LOGS_DIR/openclaw-config-inject.log" 2>&1
+openclaw config set plugins.entries.retrieval-token-cutter.config.readToolPolicy "$(json_string "$RTC_OPENCLAW_READ_TOOL_POLICY")" --strict-json \
+  > "$LOGS_DIR/openclaw-config-read-tool-policy.log" 2>&1
+
+openclaw gateway restart \
+  > "$LOGS_DIR/openclaw-gateway-restart.log" 2>&1 || true
 
 openclaw plugins inspect retrieval-token-cutter --runtime --json \
   > "$LOGS_DIR/openclaw-plugin-runtime.json" 2> "$LOGS_DIR/openclaw-plugin-runtime.stderr" || true
@@ -471,6 +494,22 @@ openclaw agents add "$OPENCLAW_AGENT_ID" \
   --model "$OPENCLAW_MODEL" \
   --non-interactive \
   --json > "$LOGS_DIR/openclaw-agent-add.json" 2> "$LOGS_DIR/openclaw-agent-add.stderr" || true
+
+if [ "$RTC_OPENCLAW_SOUL_POLICY" = "rtc" ]; then
+cat > "$WORK_DIR/SOUL.md" <<'EOF2'
+# SOUL.md - Retrieval Token Cutter SWE Run
+
+This workspace is running under the Retrieval Token Cutter policy injected by
+the OpenClaw plugin. For repository source, test, documentation, and release
+note investigation, treat `rtc_search_code` results as the file context.
+
+If a needed file is returned with a usable `content_excerpt`, use that excerpt
+directly for reasoning and `rtc_edit_file.old_string` construction. Use narrow
+`rtc_read` calls only when RTC search misses the needed file or does not
+provide enough exact text to make the patch. Do not use native `read` for
+repository source/docs in this RTC run.
+EOF2
+fi
 
 set +e
 (

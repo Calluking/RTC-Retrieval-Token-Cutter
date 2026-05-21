@@ -10,6 +10,7 @@ export interface RtcPluginConfig {
   autoStop?: boolean;
   startWaitSeconds?: number;
   injectCodePolicy?: boolean;
+  readToolPolicy?: string;
   searchLimit?: number;
   accountId?: string;
   userId?: string;
@@ -27,6 +28,7 @@ export interface ResolvedConfig {
   autoStop: boolean;
   startWaitSeconds: number;
   injectCodePolicy: boolean;
+  readToolPolicy: string;
   searchLimit: number;
   accountId: string;
   userId: string;
@@ -59,6 +61,14 @@ function asNumber(value: unknown, fallback: number, min: number, max: number): n
   return Math.max(min, Math.min(max, Math.trunc(parsed)));
 }
 
+function asReadToolPolicy(value: unknown): string {
+  const raw = typeof value === "string" ? value.toLowerCase().trim() : "";
+  if (["off", "none", "disabled", "disable"].includes(raw)) return "off";
+  if (["guard", "strict", "block"].includes(raw)) return "guard";
+  if (["advisory", "describe", "description", "warn"].includes(raw)) return "advisory";
+  return "advisory";
+}
+
 export function resolveWorkspaceRoot(config: RtcPluginConfig): string {
   const raw =
     config.workspaceRoot ||
@@ -83,10 +93,11 @@ export function resolveConfig(config: RtcPluginConfig, pluginRoot: string, repoR
     workspaceRoot: resolveWorkspaceRoot(config),
     rtcUrl,
     runtimeDir,
-    autoStart: asBoolean(config.autoStart ?? process.env.RTC_OPENCLAW_AUTO_START, true),
-    autoStop: asBoolean(config.autoStop ?? process.env.RTC_OPENCLAW_AUTO_STOP, true),
+    autoStart: asBoolean(config.autoStart ?? process.env.RTC_OPENCLAW_AUTO_START, false),
+    autoStop: asBoolean(config.autoStop ?? process.env.RTC_OPENCLAW_AUTO_STOP, false),
     startWaitSeconds: asNumber(config.startWaitSeconds ?? process.env.RTC_PLUGIN_START_WAIT, 45, 1, 180),
     injectCodePolicy: asBoolean(config.injectCodePolicy, true),
+    readToolPolicy: asReadToolPolicy(config.readToolPolicy ?? process.env.RTC_OPENCLAW_READ_TOOL_POLICY),
     searchLimit: asNumber(config.searchLimit ?? process.env.RTC_SEARCH_LIMIT, 5, 1, 100),
     accountId: config.accountId || process.env.RTC_ACCOUNT_ID || "acct-demo",
     userId: config.userId || process.env.RTC_USER_ID || "u-openclaw",
