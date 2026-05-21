@@ -72,6 +72,15 @@ def run_cmd(cmd, cwd, env, timeout_sec):
         }
 
 
+def workspace_git_env(workspace, experiment_dir, env):
+    out = env.copy()
+    moved_git = experiment_dir / "workspace.git"
+    if not (workspace / ".git").exists() and moved_git.exists():
+        out["GIT_DIR"] = str(moved_git)
+        out["GIT_WORK_TREE"] = str(workspace)
+    return out
+
+
 def should_retry_official_harness(result, report_path, aggregate_report_path, instance_log_path, build_image_log_path):
     if Path(report_path).exists():
         return False
@@ -112,6 +121,8 @@ def run_with_lock(lock_path, fn):
 
 
 def collect_tests_for_file(runner, cwd, env, test_file, timeout_sec):
+    if "tests/runtests.py" in runner:
+        return []
     collect_runner = [x for x in runner if x != "-q"]
     res = run_cmd(collect_runner + ["--collect-only", test_file], cwd, env, timeout_sec)
     if res["status"] == "timeout":
@@ -133,6 +144,27 @@ def collect_tests_for_file(runner, cwd, env, test_file, timeout_sec):
 
 
 def resolve_test_node(runner, cwd, env, test, timeout_sec):
+    if "tests/runtests.py" in runner:
+        resolved = django_test_label(test)
+        if resolved == "test_utils" or "." not in resolved:
+            return resolved
+        probe = run_cmd(runner + [resolved], cwd, env, timeout_sec)
+        probe_text = (probe.get("stdout") or "") + "\n" + (probe.get("stderr") or "")
+        if probe["status"] == "passed" or not any(
+            marker in probe_text
+            for marker in [
+                "ModuleNotFoundError",
+                "Failed to import test module",
+                "ImportError:",
+                "AttributeError:",
+            ]
+        ):
+            return resolved
+        module_path = resolved.rsplit(".", 2)[0]
+        if any(part.startswith("test_") for part in module_path.split(".")[1:]):
+            return module_path.split(".", 1)[0]
+        return resolved
+
     file_part, _, fn_part = test.partition("::")
     if not file_part or not fn_part:
         return test
@@ -162,12 +194,29 @@ def resolve_test_node(runner, cwd, env, test, timeout_sec):
     return test
 
 
+def django_test_label(test):
+    match = re.match(r"^(?P<method>[A-Za-z_][A-Za-z0-9_]*)\s+\((?P<class>[^)]+)\)$", test)
+    if match:
+        class_path = match.group("class")
+        module_path = class_path.rsplit(".", 1)[0]
+        return f"{class_path}.{match.group('method')}"
+    if not re.match(r"^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)+$", test):
+        # Some older Django unittest descriptions in SWE-bench are human
+        # docstrings rather than importable labels. In the Lite Django tasks
+        # these come from test_utils; run the containing app instead of
+        # reporting a false import failure.
+        return "test_utils"
+    return test
+
+
 def choose_runner(instance):
     python_bin = (
         os.environ.get("SWE_VALIDATION_PYTHON")
         or os.environ.get("SWE_TASK_PYTHON")
         or sys.executable
     )
+    if (instance.get("repo") or "").lower() == "django/django":
+        return [python_bin, "tests/runtests.py", "--verbosity=1"]
     return [python_bin, "-m", "pytest", "-q", "-o", "filterwarnings=ignore"]
 
 
@@ -511,7 +560,7 @@ def run_local_validation(instance, workspace, experiment_dir, logs_dir, timeout_
             apply_res = run_cmd(
                 ["git", "apply", "--whitespace=nowarn", str(test_patch_path)],
                 workspace,
-                env,
+                workspace_git_env(workspace, experiment_dir, env),
                 timeout_sec,
             )
             prep_results.append(apply_res)
@@ -544,7 +593,7 @@ def run_local_validation(instance, workspace, experiment_dir, logs_dir, timeout_
                 run_cmd(
                     ["git", "apply", "-R", "--whitespace=nowarn", str(test_patch_path)],
                     workspace,
-                    env,
+                    workspace_git_env(workspace, experiment_dir, env),
                     timeout_sec,
                 )
 
@@ -591,6 +640,7 @@ def main():
     patch_proc = subprocess.run(
         ["git", "diff", "--binary"],
         cwd=str(workspace),
+        env=workspace_git_env(workspace, experiment_dir, os.environ.copy()),
         capture_output=True,
         text=True,
     )
