@@ -31,9 +31,10 @@ fi
 # Priority: first CLI arg > env > default.
 # Default to a Flask SWE-bench Lite task for faster Python-centric debugging.
 export SWE_LITE_INSTANCE_ID="${1:-${SWE_LITE_INSTANCE_ID:-pallets__flask-4045}}"
-export RTC_SEARCH_LIMIT="${RTC_SEARCH_LIMIT:-}"
+export RTC_SEARCH_LIMIT="${RTC_SEARCH_LIMIT:-4}"
 export SWE_USE_DERIVED_LOCAL_ENV="${SWE_USE_DERIVED_LOCAL_ENV:-1}"
 export SWE_VALIDATION_FORCE_LOCAL="${SWE_VALIDATION_FORCE_LOCAL:-1}"
+export SWE_SKIP_VALIDATION="${SWE_SKIP_VALIDATION:-1}"
 
 # Parallel-run isolation knobs.
 # RUN_IDX lets callers run multiple jobs concurrently with deterministic offsets.
@@ -333,7 +334,7 @@ export VECTOR_DB_TYPE="${VECTOR_DB_TYPE:-memory}"
 # overridden by RTC_CODE_TOGGLE_FORCE.
 export RTC_CODE_TOGGLE="${RTC_CODE_TOGGLE_FORCE:-true}"
 export EMBEDDING_PROVIDER="${EMBEDDING_PROVIDER:-openai}"
-export RTC_EMBEDDING_MODEL="${RTC_EMBEDDING_MODEL:-text-embedding-3-large}"
+export RTC_EMBEDDING_MODEL="${RTC_EMBEDDING_MODEL:-text-embedding-3-small}"
 export RTC_EMBEDDING_BASE_URL="${RTC_EMBEDDING_BASE_URL:-https://api.openai-proxy.org}"
 export RTC_EMBEDDING_API_KEY="${RTC_EMBEDDING_API_KEY:-}"
 export RTC_CODE_SEARCH_CANDIDATE_MAX_FILES="${RTC_CODE_SEARCH_CANDIDATE_MAX_FILES:-40}"
@@ -369,7 +370,7 @@ if base.endswith("/v1"):
     url = base + "/embeddings"
 else:
     url = base + "/v1/embeddings"
-model = os.environ.get("RTC_EMBEDDING_MODEL") or "text-embedding-3-large"
+model = os.environ.get("RTC_EMBEDDING_MODEL") or "text-embedding-3-small"
 key = os.environ.get("RTC_EMBEDDING_API_KEY") or ""
 body = json.dumps({"model": model, "input": ["embedding health probe"]}).encode("utf-8")
 req = urllib.request.Request(

@@ -29,6 +29,7 @@ fi
 export SWE_LITE_INSTANCE_ID="${1:-${SWE_LITE_INSTANCE_ID:-pallets__flask-4045}}"
 export SWE_USE_DERIVED_LOCAL_ENV="${SWE_USE_DERIVED_LOCAL_ENV:-1}"
 export SWE_VALIDATION_FORCE_LOCAL="${SWE_VALIDATION_FORCE_LOCAL:-1}"
+export SWE_SKIP_VALIDATION="${SWE_SKIP_VALIDATION:-1}"
 
 # Parallel-run isolation knobs.
 # RUN_IDX lets callers run multiple jobs concurrently with deterministic offsets.

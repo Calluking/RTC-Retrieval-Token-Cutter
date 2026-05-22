@@ -83,7 +83,7 @@
       },
       "searchLimit": {
         "type": "number",
-        "default": 5,
+        "default": 4,
         "minimum": 1,
         "maximum": 100,
         "description": "Default max code search hits."

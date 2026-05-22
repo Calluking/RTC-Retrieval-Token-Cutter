@@ -98,7 +98,7 @@ export function resolveConfig(config: RtcPluginConfig, pluginRoot: string, repoR
     startWaitSeconds: asNumber(config.startWaitSeconds ?? process.env.RTC_PLUGIN_START_WAIT, 45, 1, 180),
     injectCodePolicy: asBoolean(config.injectCodePolicy, true),
     readToolPolicy: asReadToolPolicy(config.readToolPolicy ?? process.env.RTC_OPENCLAW_READ_TOOL_POLICY),
-    searchLimit: asNumber(config.searchLimit ?? process.env.RTC_SEARCH_LIMIT, 5, 1, 100),
+    searchLimit: asNumber(config.searchLimit ?? process.env.RTC_SEARCH_LIMIT, 4, 1, 100),
     accountId: config.accountId || process.env.RTC_ACCOUNT_ID || "acct-demo",
     userId: config.userId || process.env.RTC_USER_ID || "u-openclaw",
     agentId: config.agentId || process.env.RTC_AGENT_ID || "openclaw",
