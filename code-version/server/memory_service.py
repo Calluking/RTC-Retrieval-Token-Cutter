@@ -11,6 +11,7 @@ import logging
 import math
 import os
 import re
+import hashlib
 import subprocess
 import threading
 import time
@@ -1258,6 +1259,7 @@ class MemoryService:
             range_text = f"lines {start_line}-{end_line}" if start_line and end_line else "chunk"
             kind = str(meta.get("symbol_kind") or "code")
             abstract = f"{symbol} {kind} in {rel} ({range_text})".strip()
+            overview = str(meta.get("graph_doc") or meta.get("signature") or "")
             hits.append(
                 {
                     "uri": str(meta["snippet_uri"]),
@@ -1265,7 +1267,7 @@ class MemoryService:
                     "score": float(score),
                     "category": "code",
                     "abstract": abstract,
-                    "overview": str(meta.get("signature") or ""),
+                    "overview": overview,
                     "content_excerpt": str(meta["excerpt"])[:4000],
                     "symbol": symbol,
                     "symbol_kind": kind,
@@ -1370,6 +1372,7 @@ class MemoryService:
         self,
         workspace_root: Path,
         candidate_paths: list[str],
+        ctx: RequestContext | None = None,
     ) -> list[dict]:
         snippets: list[dict] = []
         for rel in candidate_paths:
@@ -1398,6 +1401,24 @@ class MemoryService:
                 excerpt = prepend_code_location_header(snippet, code_metadata)
                 rel_display = guess_repo_rel_from_file_path(str(full_path)) or rel
                 symbol_kind = chunk.symbol_kind or "code"
+                graph_metadata = {}
+                try:
+                    graph_metadata = dict((getattr(chunk, "metadata", None) or {}).get("graph") or {})
+                except Exception:
+                    graph_metadata = {}
+                agfs_uri = self._code_memory_uri_for_chunk(chunk, ctx) if ctx is not None else ""
+                agfs_directory = self._agfs_directory_for_uri(agfs_uri)
+                graph_doc = self._format_graph_l1_doc(
+                    symbol=str(chunk.symbol or ""),
+                    file_path=str(full_path),
+                    rel_path=rel_display,
+                    start_line=chunk.start_line,
+                    end_line=chunk.end_line,
+                    signature=str(chunk.signature or ""),
+                    graph_metadata=graph_metadata,
+                    agfs_uri=agfs_uri,
+                    agfs_directory=agfs_directory,
+                )
                 snippet_uri = (
                     f"file://{workspace_root}/{rel}"
                     f"#L{chunk.start_line}-L{chunk.end_line}:{chunk.symbol}"
@@ -1409,10 +1430,14 @@ class MemoryService:
                 ]
                 if chunk.signature:
                     doc_parts.append(f"signature: {chunk.signature}")
+                if graph_doc:
+                    doc_parts.extend(["", graph_doc])
                 doc_parts.extend(["", excerpt])
                 snippets.append(
                     {
                         "snippet_uri": snippet_uri,
+                        "agfs_uri": agfs_uri,
+                        "file_path": str(full_path),
                         "rel": rel,
                         "symbol": chunk.symbol,
                         "symbol_kind": symbol_kind,
@@ -1420,6 +1445,8 @@ class MemoryService:
                         "end_line": chunk.end_line,
                         "signature": chunk.signature,
                         "excerpt": excerpt,
+                        "graph": graph_metadata,
+                        "graph_doc": graph_doc,
                         "embedding_doc": "\n".join(doc_parts),
                         "bm25_doc": " ".join(
                             [
@@ -1427,12 +1454,219 @@ class MemoryService:
                                 f"symbol {chunk.symbol}",
                                 f"kind {symbol_kind}",
                                 f"signature {chunk.signature or ''}",
+                                graph_doc,
                                 snippet,
                             ]
                         ),
                     }
                 )
+        self._resolve_snippet_graph_relations(snippets)
+        for snippet in snippets:
+            graph_metadata = snippet.get("graph") if isinstance(snippet.get("graph"), dict) else {}
+            graph_doc = self._format_graph_l1_doc(
+                symbol=str(snippet.get("symbol") or ""),
+                file_path=str(snippet.get("file_path") or ""),
+                rel_path=str(snippet.get("rel") or ""),
+                start_line=snippet.get("start_line"),
+                end_line=snippet.get("end_line"),
+                signature=str(snippet.get("signature") or ""),
+                graph_metadata=graph_metadata,
+                agfs_uri=str(snippet.get("agfs_uri") or ""),
+                agfs_directory=self._agfs_directory_for_uri(str(snippet.get("agfs_uri") or "")),
+            )
+            snippet["graph_doc"] = graph_doc
+            snippet["embedding_doc"] = "\n".join(
+                part for part in [
+                    f"path: {snippet.get('rel') or ''}",
+                    f"symbol: {snippet.get('symbol') or ''}",
+                    f"kind: {snippet.get('symbol_kind') or 'code'}",
+                    f"signature: {snippet.get('signature') or ''}" if snippet.get("signature") else "",
+                    "",
+                    graph_doc,
+                    "",
+                    str(snippet.get("excerpt") or ""),
+                ] if part != ""
+            )
+            snippet["bm25_doc"] = " ".join(
+                [
+                    f"path {snippet.get('rel') or ''}",
+                    f"symbol {snippet.get('symbol') or ''}",
+                    f"kind {snippet.get('symbol_kind') or 'code'}",
+                    f"signature {snippet.get('signature') or ''}",
+                    graph_doc,
+                    str(snippet.get("excerpt") or ""),
+                ]
+            )
         return snippets
+
+    @staticmethod
+    def _resolve_snippet_graph_relations(snippets: list[dict]) -> None:
+        """Resolve graph relation names to concrete snippet URIs and locators."""
+        symbol_index: dict[str, list[dict]] = {}
+
+        def leaf(value: object) -> str:
+            text = str(value or "").strip().lower()
+            if not text:
+                return ""
+            return text.rsplit(".", 1)[-1]
+
+        def add_symbol(symbol: object, snippet: dict) -> None:
+            key = leaf(symbol)
+            if key:
+                symbol_index.setdefault(key, []).append(snippet)
+
+        for snippet in snippets:
+            add_symbol(snippet.get("symbol"), snippet)
+            graph = snippet.get("graph") if isinstance(snippet.get("graph"), dict) else {}
+            add_symbol(graph.get("symbol"), snippet)
+
+        for snippet in snippets:
+            graph = dict(snippet.get("graph") or {})
+            relations: list[dict] = []
+            seen: set[tuple[str, str, str]] = set()
+            for relation_type in ("calls", "extends", "contains"):
+                values = graph.get(relation_type)
+                if not isinstance(values, list):
+                    continue
+                for raw_name in values:
+                    name = str(raw_name or "").strip()
+                    target_key = leaf(name)
+                    if not target_key:
+                        continue
+                    for target in symbol_index.get(target_key, []):
+                        if target is snippet:
+                            continue
+                        target_uri = str(target.get("snippet_uri") or "")
+                        dedupe_key = (relation_type, name, target_uri)
+                        if not target_uri or dedupe_key in seen:
+                            continue
+                        seen.add(dedupe_key)
+                        relations.append(
+                            {
+                                "type": relation_type,
+                                "name": name,
+                                "target_uri": target_uri,
+                                "target_agfs_uri": target.get("agfs_uri") or "",
+                                "target_symbol": target.get("symbol") or "",
+                                "target_path": target.get("rel") or "",
+                                "target_start_line": target.get("start_line"),
+                                "target_end_line": target.get("end_line"),
+                                "target_signature": target.get("signature") or "",
+                                "confidence": "resolved_symbol",
+                            }
+                        )
+            graph["relations"] = relations
+            snippet["graph"] = graph
+
+    @staticmethod
+    def _format_graph_l1_doc(
+        *,
+        symbol: str,
+        file_path: str = "",
+        rel_path: str,
+        start_line: int | None = None,
+        end_line: int | None = None,
+        signature: str,
+        graph_metadata: dict,
+        agfs_uri: str = "",
+        agfs_directory: str = "",
+    ) -> str:
+        title = symbol or "code"
+        lines: list[str] = [f"# {title}", "", "## Location"]
+        lines.append(f"- graph.symbol: {title}")
+        if agfs_uri:
+            lines.append(f"- agfs.uri: {agfs_uri}")
+        if agfs_directory:
+            lines.append(f"- agfs.directory: {agfs_directory}")
+        if file_path:
+            file_display = file_path.strip().replace("\\", "/")
+            lines.append(f"- source.file: {file_display}")
+        if rel_path:
+            lines.append(f"- graph.path: {rel_path}")
+        if start_line is not None and end_line is not None:
+            lines.append(f"- source.lines: {start_line}-{end_line}")
+        if signature:
+            lines.extend(["", "## Signature", f"```text\n{signature}\n```"])
+
+        def add_list(label: str, values: object, limit: int = 12) -> None:
+            if not isinstance(values, list):
+                return
+            cleaned = [str(v).strip() for v in values if str(v).strip()]
+            if cleaned:
+                lines.append(f"- {label}: {', '.join(cleaned[:limit])}")
+
+        graph_start = len(lines)
+        lines.extend(["", "## Graph"])
+        add_list("graph.calls", graph_metadata.get("calls"))
+        add_list("graph.imports", graph_metadata.get("imports"))
+        add_list("graph.extends", graph_metadata.get("extends"))
+        add_list("graph.contains", graph_metadata.get("contains"))
+        relations = graph_metadata.get("relations")
+        if isinstance(relations, list):
+            relation_lines: list[str] = []
+            for rel in relations[:12]:
+                if not isinstance(rel, dict):
+                    continue
+                relation_type = str(rel.get("type") or "").strip()
+                name = str(rel.get("name") or rel.get("target_symbol") or "").strip()
+                target_path = str(rel.get("target_path") or "").strip().replace("\\", "/")
+                start = rel.get("target_start_line")
+                end = rel.get("target_end_line")
+                target_uri = str(rel.get("target_uri") or rel.get("target_agfs_uri") or "").strip()
+                location = target_path
+                if start is not None and end is not None:
+                    location = f"{location}:{start}-{end}" if location else f"{start}-{end}"
+                if relation_type and name:
+                    suffix = f" -> {location}" if location else ""
+                    if target_uri:
+                        suffix += f" ({target_uri})"
+                    relation_lines.append(f"{relation_type}:{name}{suffix}")
+            if relation_lines:
+                lines.append(f"- graph.resolved_relations: {'; '.join(relation_lines)}")
+        if len(lines) == graph_start + 2:
+            lines.append("- graph.relations: none")
+        return "\n".join(lines)
+
+    @staticmethod
+    def _slugify_code_value(value: str) -> str:
+        value = value.lower().strip()
+        value = re.sub(r"[^a-z0-9]+", "_", value)
+        return value.strip("_") or "code_chunk"
+
+    @classmethod
+    def _code_memory_slug_for_chunk(cls, chunk) -> str:
+        language = str(getattr(chunk, "language", None) or "unknown")
+        file_path = str(getattr(chunk, "file_path", None) or "")
+        symbol = str(getattr(chunk, "symbol", None) or getattr(chunk, "routing_key", None) or "symbol")
+        start_line = getattr(chunk, "start_line", None)
+        end_line = getattr(chunk, "end_line", None)
+        line_range_slug = f"{start_line}_{end_line}" if start_line is not None and end_line is not None else "0_0"
+        file_name = Path(file_path).name if file_path else "file"
+        file_stem = file_name.rsplit(".", 1)[0] if "." in file_name else file_name
+        prefix = cls._slugify_code_value(f"{language}_{file_stem}_{symbol}_{line_range_slug}")
+        prefix = prefix[:96].rstrip("_") or "code_chunk"
+        line_range_identity = f"{start_line}-{end_line}" if start_line is not None and end_line is not None else "0-0"
+        identity = f"{language}:{file_path}:{symbol}:{line_range_identity}"
+        digest = hashlib.sha1(identity.encode("utf-8")).hexdigest()[:16]
+        return f"{prefix}_{digest}"
+
+    @classmethod
+    def _code_memory_uri_for_chunk(cls, chunk, ctx: RequestContext) -> str:
+        owner_id = ctx.agent_id
+        if not owner_id:
+            return ""
+        slug = cls._code_memory_slug_for_chunk(chunk)
+        return f"ctx://{ctx.account_id}/agents/{owner_id}/memories/code/{slug}"
+
+    @staticmethod
+    def _agfs_directory_for_uri(uri: str) -> str:
+        if not uri.startswith("ctx://"):
+            return ""
+        rest = uri[len("ctx://"):]
+        parts = rest.split("/")
+        if not parts:
+            return ""
+        return "/accounts/" + "/".join(parts)
 
     def _bm25_rank_candidate_hits(
         self,
@@ -1488,6 +1722,7 @@ class MemoryService:
             range_text = f"lines {start_line}-{end_line}" if start_line and end_line else "chunk"
             kind = str(meta.get("symbol_kind") or "code")
             abstract = f"{symbol} {kind} in {rel} ({range_text})".strip()
+            overview = str(meta.get("graph_doc") or meta.get("signature") or "")
             hits.append(
                 {
                     "uri": str(meta["snippet_uri"]),
@@ -1495,7 +1730,7 @@ class MemoryService:
                     "score": float(score),
                     "category": "code",
                     "abstract": abstract,
-                    "overview": str(meta.get("signature") or ""),
+                    "overview": overview,
                     "content_excerpt": str(meta["excerpt"])[:4000],
                     "symbol": symbol,
                     "symbol_kind": kind,
@@ -1558,6 +1793,7 @@ class MemoryService:
             range_text = f"lines {start_line}-{end_line}" if start_line and end_line else "chunk"
             kind = str(meta.get("symbol_kind") or "code")
             abstract = f"{symbol} {kind} in {rel} ({range_text})".strip()
+            overview = str(meta.get("graph_doc") or meta.get("signature") or "")
             hits.append(
                 {
                     "uri": str(meta["snippet_uri"]),
@@ -1565,7 +1801,7 @@ class MemoryService:
                     "score": float(score),
                     "category": "code",
                     "abstract": abstract,
-                    "overview": str(meta.get("signature") or ""),
+                    "overview": overview,
                     "content_excerpt": str(meta["excerpt"])[:4000],
                     "symbol": symbol,
                     "symbol_kind": kind,
@@ -1575,6 +1811,204 @@ class MemoryService:
                 }
             )
         return hits
+
+    def _graph_rank_candidate_hits(
+        self,
+        snippets: list[dict],
+        *,
+        query: str,
+        limit: int,
+    ) -> list[dict]:
+        """CGM-style route over L1 graph properties: lexical anchors + BFS expansion."""
+        if not snippets or limit <= 0:
+            return []
+        query_terms = [t.lower() for t in _extract_code_query_terms(query)]
+        if not query_terms:
+            return []
+
+        def norm(value: object) -> str:
+            return str(value or "").strip().lower()
+
+        def leaf(value: object) -> str:
+            text = norm(value)
+            if not text:
+                return ""
+            return text.rsplit(".", 1)[-1]
+
+        uri_by_symbol: dict[str, list[str]] = {}
+        uri_aliases: dict[str, str] = {}
+        snippets_by_uri: dict[str, dict] = {}
+        for snippet in snippets:
+            uri = str(snippet.get("snippet_uri") or "")
+            if not uri:
+                continue
+            snippets_by_uri[uri] = snippet
+            for alias_key in ("agfs_uri", "uri"):
+                alias = str(snippet.get(alias_key) or "").strip()
+                if alias:
+                    uri_aliases[alias] = uri
+            symbol = leaf(snippet.get("symbol"))
+            if symbol:
+                uri_by_symbol.setdefault(symbol, []).append(uri)
+
+        out_edges: dict[str, set[str]] = {uri: set() for uri in snippets_by_uri}
+        in_edges: dict[str, set[str]] = {uri: set() for uri in snippets_by_uri}
+        for uri, snippet in snippets_by_uri.items():
+            graph = snippet.get("graph") if isinstance(snippet.get("graph"), dict) else {}
+            relations = graph.get("relations")
+            if isinstance(relations, list):
+                for relation in relations:
+                    if not isinstance(relation, dict):
+                        continue
+                    target_uri = str(relation.get("target_uri") or "").strip()
+                    target_agfs_uri = str(relation.get("target_agfs_uri") or "").strip()
+                    resolved_target = (
+                        target_uri if target_uri in snippets_by_uri else uri_aliases.get(target_uri)
+                    )
+                    if not resolved_target and target_agfs_uri:
+                        resolved_target = uri_aliases.get(target_agfs_uri)
+                    if resolved_target and resolved_target != uri:
+                        out_edges[uri].add(resolved_target)
+                        in_edges[resolved_target].add(uri)
+                        continue
+
+                    # Fallback for stale/incomplete direct edges.
+                    target_symbol = leaf(relation.get("target_symbol") or relation.get("name"))
+                    if target_symbol:
+                        for fallback_uri in uri_by_symbol.get(target_symbol, []):
+                            if fallback_uri != uri:
+                                out_edges[uri].add(fallback_uri)
+                                in_edges[fallback_uri].add(uri)
+            relation_names: list[str] = []
+            for key in ("calls", "extends", "contains"):
+                values = graph.get(key)
+                if isinstance(values, list):
+                    relation_names.extend(str(v) for v in values)
+            for name in relation_names:
+                target_symbol = leaf(name)
+                if not target_symbol:
+                    continue
+                for target_uri in uri_by_symbol.get(target_symbol, []):
+                    if target_uri == uri:
+                        continue
+                    out_edges[uri].add(target_uri)
+                    in_edges[target_uri].add(uri)
+
+        def match_count(text: str) -> int:
+            text_l = text.lower()
+            return sum(1 for term in query_terms if term and term in text_l)
+
+        def direct_score(snippet: dict) -> tuple[float, float, bool]:
+            symbol = norm(snippet.get("symbol"))
+            rel = norm(snippet.get("rel"))
+            signature = norm(snippet.get("signature"))
+            graph = snippet.get("graph") if isinstance(snippet.get("graph"), dict) else {}
+            relation_text = " ".join(
+                " ".join(str(v) for v in graph.get(key, []) if str(v).strip())
+                for key in ("calls", "imports", "extends", "contains")
+                if isinstance(graph.get(key), list)
+            ).lower()
+
+            score = 0.0
+            exact_symbol_anchor = any(term == symbol for term in query_terms)
+            if exact_symbol_anchor:
+                score += 6.0
+            score += match_count(symbol) * 2.5
+            score += match_count(signature) * 1.8
+            score += match_count(rel) * 1.4
+            anchor_score = score
+            score += match_count(relation_text) * 1.6
+            degree = len(out_edges.get(str(snippet.get("snippet_uri") or ""), set()))
+            degree += len(in_edges.get(str(snippet.get("snippet_uri") or ""), set()))
+            if degree:
+                score += min(degree, 4) * 0.25
+            return score, anchor_score, exact_symbol_anchor
+
+        direct_results = {
+            uri: direct_score(snippet)
+            for uri, snippet in snippets_by_uri.items()
+        }
+        direct_scores = {uri: result[0] for uri, result in direct_results.items()}
+        anchor_scores = {uri: result[1] for uri, result in direct_results.items()}
+        exact_symbol_anchors = {uri for uri, result in direct_results.items() if result[2]}
+        degree_by_uri = {
+            uri: len(out_edges.get(uri, set())) + len(in_edges.get(uri, set()))
+            for uri in snippets_by_uri
+        }
+        anchors = [
+            uri for uri, score in anchor_scores.items()
+            if score > 0.0 and (degree_by_uri.get(uri, 0) > 0 or uri in exact_symbol_anchors)
+        ]
+        if not anchors:
+            return []
+        anchors.sort(key=lambda uri: direct_scores.get(uri, 0.0), reverse=True)
+        anchors = anchors[:8]
+
+        distances: dict[str, int] = {uri: 0 for uri in anchors}
+        frontier = set(anchors)
+        for dist in (1, 2):
+            next_frontier: set[str] = set()
+            for uri in frontier:
+                next_frontier.update(out_edges.get(uri, set()))
+                next_frontier.update(in_edges.get(uri, set()))
+            for uri in next_frontier:
+                if uri not in distances:
+                    distances[uri] = dist
+            frontier = {uri for uri in next_frontier if distances.get(uri) == dist}
+            if not frontier:
+                break
+
+        scored: list[tuple[float, dict]] = []
+        for uri, dist in distances.items():
+            snippet = snippets_by_uri.get(uri)
+            if not snippet:
+                continue
+            out_degree = len(out_edges.get(uri, set()))
+            in_degree = len(in_edges.get(uri, set()))
+            degree = out_degree + in_degree
+            exact_symbol_anchor = uri in exact_symbol_anchors
+            if degree <= 0 and not exact_symbol_anchor:
+                continue
+            proximity = {0: 1.0, 1: 2.5, 2: 1.25}.get(dist, 0.0) if degree else 0.0
+            direct = direct_scores.get(uri, 0.0)
+            if degree:
+                score = direct + proximity + min(degree, 4) * 0.5
+            else:
+                score = min(direct, 2.0)
+            if dist > 0 and direct <= 0.0:
+                score -= 0.25
+            if score <= 0.0:
+                continue
+
+            rel = str(snippet["rel"])
+            symbol = str(snippet.get("symbol") or "").strip()
+            start_line = snippet.get("start_line")
+            end_line = snippet.get("end_line")
+            range_text = f"lines {start_line}-{end_line}" if start_line and end_line else "chunk"
+            kind = str(snippet.get("symbol_kind") or "code")
+            graph_doc = str(snippet.get("graph_doc") or "")
+            hit = {
+                "uri": uri,
+                "level_hit": "L1",
+                "score": float(score),
+                "category": "code",
+                "abstract": f"{symbol} {kind} in {rel} ({range_text})".strip(),
+                "overview": graph_doc,
+                "content_excerpt": str(snippet["excerpt"])[:4000],
+                "symbol": symbol,
+                "symbol_kind": kind,
+                "start_line": start_line,
+                "end_line": end_line,
+                "retrieval_source": "graph",
+                "graph_distance": dist,
+                "graph_relation_counts": {
+                    "out": out_degree,
+                    "in": in_degree,
+                },
+            }
+            scored.append((score, hit))
+        scored.sort(key=lambda item: item[0], reverse=True)
+        return [hit for _, hit in scored[:limit]]
 
     @staticmethod
     def _normalize_scores(hits: list[dict]) -> dict[str, float]:
@@ -1608,57 +2042,76 @@ class MemoryService:
         embedding_hits: list[dict],
         bm25_hits: list[dict],
         ctags_hits: list[dict],
+        graph_hits: list[dict],
         embedding_score_hits: list[dict] | None = None,
         bm25_score_hits: list[dict] | None = None,
         ctags_score_hits: list[dict] | None = None,
+        graph_score_hits: list[dict] | None = None,
         limit: int,
     ) -> list[dict]:
         candidates: dict[str, dict] = {}
-        for group in (embedding_hits, bm25_hits, ctags_hits):
+        for group in (embedding_hits, bm25_hits, ctags_hits, graph_hits):
             for hit in group:
                 uri = str(hit.get("uri") or "")
                 if not uri:
                     continue
                 if uri not in candidates:
                     candidates[uri] = dict(hit)
+                elif hit.get("retrieval_source") == "graph":
+                    candidates[uri]["graph_distance"] = hit.get("graph_distance")
+                    candidates[uri]["graph_relation_counts"] = hit.get("graph_relation_counts")
+                    candidates[uri]["graph_overview"] = hit.get("overview")
 
         embedding_score_hits = embedding_score_hits if embedding_score_hits is not None else embedding_hits
         bm25_score_hits = bm25_score_hits if bm25_score_hits is not None else bm25_hits
         ctags_score_hits = ctags_score_hits if ctags_score_hits is not None else ctags_hits
+        graph_score_hits = graph_score_hits if graph_score_hits is not None else graph_hits
 
         norm_bm25 = self._normalize_scores(bm25_score_hits)
         norm_ctags = self._normalize_scores(ctags_score_hits)
+        norm_graph = self._normalize_scores(graph_score_hits)
         raw_embed = self._raw_scores_by_uri(embedding_score_hits)
         raw_bm25 = self._raw_scores_by_uri(bm25_score_hits)
         raw_ctags = self._raw_scores_by_uri(ctags_score_hits)
-        w_embed = float(os.environ.get("RTC_CODE_FUSE_W_EMBED", "0.5"))
-        w_bm25 = float(os.environ.get("RTC_CODE_FUSE_W_BM25", "0.3"))
-        w_ctags = float(os.environ.get("RTC_CODE_FUSE_W_CTAGS", "0.2"))
+        raw_graph = self._raw_scores_by_uri(graph_score_hits)
+        w_embed = float(os.environ.get("RTC_CODE_FUSE_W_EMBED", "0.45"))
+        w_bm25 = float(os.environ.get("RTC_CODE_FUSE_W_BM25", "0.25"))
+        w_ctags = float(os.environ.get("RTC_CODE_FUSE_W_CTAGS", "0.15"))
+        w_graph = float(os.environ.get("RTC_CODE_FUSE_W_GRAPH", "0.15"))
 
         fused: list[tuple[float, dict]] = []
         for uri, hit in candidates.items():
             s_embed = raw_embed.get(uri, 0.0)
             s_bm25 = norm_bm25.get(uri, 0.0)
             s_ctags = norm_ctags.get(uri, 0.0)
-            score = (w_embed * s_embed) + (w_bm25 * s_bm25) + (w_ctags * s_ctags)
+            s_graph = norm_graph.get(uri, 0.0)
+            score = (
+                (w_embed * s_embed)
+                + (w_bm25 * s_bm25)
+                + (w_ctags * s_ctags)
+                + (w_graph * s_graph)
+            )
             item = dict(hit)
             item["score"] = float(score)
             item["retrieval_source"] = "hybrid"
-            item["score_kind"] = "weighted_sum_embedding_raw_bm25_ctags_normalized"
+            item["score_kind"] = "weighted_sum_embedding_raw_bm25_ctags_graph_normalized"
             item["score_weights"] = {
                 "embedding": w_embed,
                 "bm25": w_bm25,
                 "ctags": w_ctags,
+                "graph": w_graph,
             }
             item["raw_scores"] = {
                 "embedding": raw_embed.get(uri, 0.0),
                 "bm25": raw_bm25.get(uri, 0.0),
                 "ctags": raw_ctags.get(uri, 0.0),
+                "graph": raw_graph.get(uri, 0.0),
             }
             item["normalized_scores"] = {
                 "embedding": raw_embed.get(uri, 0.0),
                 "bm25": norm_bm25.get(uri, 0.0),
                 "ctags": norm_ctags.get(uri, 0.0),
+                "graph": norm_graph.get(uri, 0.0),
             }
             # Backward compatibility: older clients read fused_scores. These
             # are now the component scores used by the weighted-sum formula.
@@ -1666,6 +2119,7 @@ class MemoryService:
                 "embedding": s_embed,
                 "bm25": s_bm25,
                 "ctags": s_ctags,
+                "graph": s_graph,
             }
             fused.append((score, item))
         fused.sort(key=lambda item: item[0], reverse=True)
@@ -3498,7 +3952,17 @@ class MemoryService:
             except ValueError:
                 topn_each = 5
             topn_each = max(1, min(topn_each, 5))
-            snippets = self._build_candidate_snippets(workspace_root, candidate_paths)
+            t_ingest = time.perf_counter()
+            ingested = self._ingest_candidate_paths(
+                workspace_root,
+                params,
+                ctx,
+                candidate_paths=candidate_paths,
+            )
+            timings["candidate_ingest_sec"] = round(time.perf_counter() - t_ingest, 3)
+            bootstrap["ingested_paths"] = ingested
+            bootstrap["ingested_count"] = len(ingested)
+            snippets = self._build_candidate_snippets(workspace_root, candidate_paths, ctx=ctx)
             t2 = time.perf_counter()
             embed_score_hits = self._embed_rank_candidate_hits(
                 workspace_root,
@@ -3525,30 +3989,41 @@ class MemoryService:
             )
             ctags_hits = ctags_score_hits[:topn_each]
             timings["ctags_sec"] = round(time.perf_counter() - t_ctags, 3)
+            t_graph = time.perf_counter()
+            graph_score_hits = self._graph_rank_candidate_hits(
+                snippets,
+                query=query,
+                limit=len(snippets),
+            )
+            graph_hits = graph_score_hits[:topn_each]
+            timings["graph_sec"] = round(time.perf_counter() - t_graph, 3)
             t_fuse = time.perf_counter()
             fused_hits = self._fuse_code_hits(
                 embedding_hits=embed_hits,
                 bm25_hits=bm25_hits,
                 ctags_hits=ctags_hits,
+                graph_hits=graph_hits,
                 embedding_score_hits=embed_score_hits,
                 bm25_score_hits=bm25_score_hits,
                 ctags_score_hits=ctags_score_hits,
+                graph_score_hits=graph_score_hits,
                 limit=top_k,
             )
             timings["hybrid_fuse_sec"] = round(time.perf_counter() - t_fuse, 3)
             logger.info(
-                "code_semantic_search hybrid path: query=%r candidates=%d embed=%d bm25=%d ctags=%d fused=%d timings=%s",
+                "code_semantic_search hybrid path: query=%r candidates=%d embed=%d bm25=%d ctags=%d graph=%d fused=%d timings=%s",
                 query,
                 len(candidate_paths),
                 len(embed_hits),
                 len(bm25_hits),
                 len(ctags_hits),
+                len(graph_hits),
                 len(fused_hits),
                 timings,
             )
             if fused_hits:
                 union_uris: set[str] = set()
-                for group in (embed_hits, bm25_hits, ctags_hits):
+                for group in (embed_hits, bm25_hits, ctags_hits, graph_hits):
                     for item in group:
                         uri = str(item.get("uri") or "")
                         if uri:
@@ -3566,20 +4041,11 @@ class MemoryService:
                             "embedding": len(embed_hits),
                             "bm25": len(bm25_hits),
                             "ctags": len(ctags_hits),
+                            "graph": len(graph_hits),
                             "union_candidates": len(union_uris),
                         },
                     },
                 }
-            t3 = time.perf_counter()
-            ingested = self._ingest_candidate_paths(
-                workspace_root,
-                params,
-                ctx,
-                candidate_paths=candidate_paths,
-            )
-            timings["candidate_ingest_sec"] = round(time.perf_counter() - t3, 3)
-            bootstrap["ingested_paths"] = ingested
-            bootstrap["ingested_count"] = len(ingested)
         api = self.get_read_api()
         if api is None:
             return {"ok": False, "reason": "no_read_api"}

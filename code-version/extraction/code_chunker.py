@@ -5,6 +5,7 @@ from __future__ import annotations
 import ast
 import hashlib
 from dataclasses import dataclass
+from typing import Any
 
 
 @dataclass
@@ -20,6 +21,7 @@ class CodeChunk:
     chunk_hash: str
     signature: str = ""
     symbol_kind: str | None = None
+    metadata: dict[str, Any] | None = None
 
     @property
     def routing_key(self) -> str:
@@ -94,6 +96,7 @@ def _chunk_python_ast(
         return []
 
     lines = source.splitlines()
+    file_imports = _extract_python_imports(tree)
     chunks: list[CodeChunk] = []
     for node in tree.body:
         if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
@@ -111,6 +114,7 @@ def _chunk_python_ast(
         else:
             symbol_kind = "type"
         signature = _build_python_signature(node)
+        graph_metadata = _build_python_graph_metadata(node, file_imports)
         content = _slice_lines(lines, start, end)
         if not content.strip():
             continue
@@ -129,6 +133,7 @@ def _chunk_python_ast(
             )
             for sub_chunk in sub_chunks:
                 sub_chunk.signature = signature
+                sub_chunk.metadata = {"graph": graph_metadata}
             chunks.extend(sub_chunks)
             continue
 
@@ -143,6 +148,7 @@ def _chunk_python_ast(
                 chunk_hash=_hash_text(content),
                 signature=signature,
                 symbol_kind=symbol_kind,
+                metadata={"graph": graph_metadata},
             )
         )
     return chunks
@@ -155,6 +161,82 @@ def _build_python_signature(node: ast.AST) -> str:
     if isinstance(node, ast.ClassDef):
         return f"class {node.name}"
     return ""
+
+
+def _extract_python_imports(tree: ast.AST) -> list[str]:
+    imports: list[str] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                imports.append(alias.asname or alias.name)
+        elif isinstance(node, ast.ImportFrom):
+            module = "." * int(node.level or 0) + (node.module or "")
+            for alias in node.names:
+                if alias.name == "*":
+                    imports.append(f"{module}.*" if module else "*")
+                else:
+                    imports.append(f"{module}.{alias.name}" if module else alias.name)
+    return _dedupe_keep_order(imports)
+
+
+def _build_python_graph_metadata(node: ast.AST, file_imports: list[str]) -> dict[str, Any]:
+    calls = _extract_python_calls(node)
+    extends: list[str] = []
+    contains: list[str] = []
+    if isinstance(node, ast.ClassDef):
+        extends = [
+            base for base in (_expr_to_dotted(base) for base in node.bases)
+            if base
+        ]
+        contains = [
+            getattr(child, "name", "")
+            for child in node.body
+            if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef))
+        ]
+
+    return {
+        "symbol": getattr(node, "name", ""),
+        "node_type": type(node).__name__,
+        "calls": calls,
+        "imports": file_imports,
+        "extends": _dedupe_keep_order(extends),
+        "contains": _dedupe_keep_order([name for name in contains if name]),
+    }
+
+
+def _extract_python_calls(node: ast.AST) -> list[str]:
+    calls: list[str] = []
+    for child in ast.walk(node):
+        if isinstance(child, ast.Call):
+            name = _expr_to_dotted(child.func)
+            if name:
+                calls.append(name)
+    return _dedupe_keep_order(calls)
+
+
+def _expr_to_dotted(expr: ast.AST) -> str:
+    if isinstance(expr, ast.Name):
+        return expr.id
+    if isinstance(expr, ast.Attribute):
+        base = _expr_to_dotted(expr.value)
+        return f"{base}.{expr.attr}" if base else expr.attr
+    if isinstance(expr, ast.Call):
+        return _expr_to_dotted(expr.func)
+    if isinstance(expr, ast.Subscript):
+        return _expr_to_dotted(expr.value)
+    return ""
+
+
+def _dedupe_keep_order(values: list[str]) -> list[str]:
+    seen: set[str] = set()
+    out: list[str] = []
+    for value in values:
+        normalized = str(value or "").strip()
+        if not normalized or normalized in seen:
+            continue
+        seen.add(normalized)
+        out.append(normalized)
+    return out
 
 
 def _chunk_line_windows(

@@ -85,6 +85,7 @@ def _l1_code_index_metadata(node: ContextNode) -> dict[str, Any]:
     out: dict[str, Any] = {}
     if fp:
         out["l1_location"] = fp
+        out["l1_source_file"] = fp
     rel = guess_repo_rel_from_file_path(fp) if fp else ""
     if rel:
         out["l1_repo_rel_path"] = rel
@@ -97,6 +98,12 @@ def _l1_code_index_metadata(node: ContextNode) -> dict[str, Any]:
             out["l1_lines"] = f"{sl_i}-{el_i}"
         except (TypeError, ValueError):
             pass
+    agfs_uri = str(md.get("agfs_uri") or node.uri or "").strip()
+    if agfs_uri:
+        out["l1_agfs_uri"] = agfs_uri
+    agfs_directory = str(md.get("agfs_directory") or "").strip()
+    if agfs_directory:
+        out["l1_agfs_directory"] = agfs_directory
     ctags = md.get("ctags")
     if isinstance(ctags, dict):
         name = str(ctags.get("name") or "").strip()
@@ -109,6 +116,42 @@ def _l1_code_index_metadata(node: ContextNode) -> dict[str, Any]:
     if bm25_document:
         # Keep metadata compact while preserving lexical hints.
         out["l1_bm25_document"] = bm25_document[:2000]
+    graph = md.get("graph")
+    if isinstance(graph, dict):
+        symbol = str(graph.get("symbol") or md.get("symbol") or "").strip()
+        if symbol:
+            out["l1_graph_symbol"] = symbol
+        for key in ("calls", "imports", "extends", "contains"):
+            values = graph.get(key)
+            if isinstance(values, list) and values:
+                out[f"l1_graph_{key}"] = ", ".join(str(v) for v in values[:20])[:2000]
+        relations = graph.get("relations")
+        if isinstance(relations, list) and relations:
+            relation_bits: list[str] = []
+            for rel in relations[:20]:
+                if not isinstance(rel, dict):
+                    continue
+                relation_type = str(rel.get("type") or "").strip()
+                name = str(rel.get("name") or rel.get("target_symbol") or "").strip()
+                target_uri = str(rel.get("target_uri") or rel.get("target_agfs_uri") or "").strip()
+                target_path = str(rel.get("target_path") or "").strip()
+                start = rel.get("target_start_line")
+                end = rel.get("target_end_line")
+                loc = target_path
+                if start is not None and end is not None:
+                    loc = f"{loc}:{start}-{end}" if loc else f"{start}-{end}"
+                bit = f"{relation_type}:{name}".strip(":")
+                if loc:
+                    bit += f"->{loc}"
+                if target_uri:
+                    bit += f"({target_uri})"
+                if bit:
+                    relation_bits.append(bit)
+            if relation_bits:
+                out["l1_graph_relations"] = "; ".join(relation_bits)[:2000]
+    graph_document = str(md.get("graph_document") or "").strip()
+    if graph_document:
+        out["l1_graph_document"] = graph_document[:2000]
     return out
 
 

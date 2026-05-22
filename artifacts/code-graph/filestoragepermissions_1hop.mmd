@@ -1,0 +1,35 @@
+flowchart LR
+  ANCHOR((CLASS<br/>FileStoragePermissions<br/>tests/file_storage/tests.py<br/>L878-L914))
+
+  TEST1((FUNC<br/>test_file_upload_permissions))
+  TEST2((FUNC<br/>test_file_upload_default_permissions))
+  TEST3((FUNC<br/>test_file_upload_directory_permissions))
+  TEST4((FUNC<br/>test_file_upload_directory_default_permissions))
+
+  FSS((CLASS<br/>FileSystemStorage<br/>django/core/files/storage.py))
+  SAVE((FUNC<br/>_save))
+  PATH((FUNC<br/>path))
+  CFP((CLASS<br/>ContentFile))
+  STAT((FUNC<br/>os.stat))
+  UMASK((FUNC<br/>os.umask))
+  OVERRIDE((FUNC<br/>override_settings))
+
+  ANCHOR -->|contains| TEST1
+  ANCHOR -->|contains| TEST2
+  ANCHOR -->|contains| TEST3
+  ANCHOR -->|contains| TEST4
+
+  ANCHOR -.->|calls| FSS
+  ANCHOR -.->|calls| SAVE
+  ANCHOR -.->|calls| PATH
+  ANCHOR -.->|calls| CFP
+  ANCHOR -.->|calls| STAT
+  ANCHOR -.->|calls| UMASK
+  ANCHOR -.->|uses decorator| OVERRIDE
+
+  classDef anchor stroke:#111,stroke-width:8px,fill:#fff6cc,color:#111;
+  classDef neighbor stroke:#222,stroke-width:2px,fill:#ffffff,color:#111;
+  classDef internal stroke:#222,stroke-width:2px,fill:#eaf3ff,color:#111;
+  class ANCHOR anchor;
+  class FSS,SAVE,PATH,CFP,STAT,UMASK,OVERRIDE neighbor;
+  class TEST1,TEST2,TEST3,TEST4 internal;

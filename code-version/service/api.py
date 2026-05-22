@@ -9,6 +9,7 @@ See CLAUDE.md §7 for tool interface spec and §8 for multi-tenant rules.
 
 import os
 import re
+import hashlib
 import threading
 import uuid
 from dataclasses import dataclass
@@ -331,6 +332,8 @@ class MemoryWriteAPI:
 
         lang = detect_language(file_path, language)
         chunks = chunk_source_code(source_code, file_path, language=lang)
+        chunk_uris = {id(chunk): self._code_memory_uri(chunk=chunk, ctx=ctx) for chunk in chunks}
+        self._resolve_code_graph_relations(chunks, chunk_uris)
 
         chunks_rejected = 0
         chunks_accepted = 0
@@ -346,7 +349,22 @@ class MemoryWriteAPI:
             )
             sym = str(chunk.symbol or "").strip()
             abstract_l0 = self._code_memory_l0(chunk)
-            overview_l1 = f"{sym} {rel_display}".strip() if sym or rel_display else "code"
+            graph_metadata = {}
+            if getattr(chunk, "metadata", None):
+                graph_metadata = dict(chunk.metadata.get("graph") or {})
+            agfs_uri = chunk_uris.get(id(chunk)) or self._code_memory_uri(chunk=chunk, ctx=ctx)
+            agfs_directory = self._agfs_directory_for_uri(agfs_uri)
+            overview_l1 = self._code_memory_l1(
+                symbol=sym,
+                agfs_uri=agfs_uri,
+                agfs_directory=agfs_directory,
+                file_path=chunk.file_path,
+                rel_path=rel_display,
+                start_line=chunk.start_line,
+                end_line=chunk.end_line,
+                signature=chunk.signature,
+                graph_metadata=graph_metadata,
+            )
             ctags_entry = {
                 "name": chunk.symbol,
                 "kind": chunk.symbol_kind or "code",
@@ -375,9 +393,13 @@ class MemoryWriteAPI:
                 "chunk_hash": chunk.chunk_hash,
                 "project_id": project_id,
                 "signature": chunk.signature,
+                "agfs_uri": agfs_uri,
+                "agfs_directory": agfs_directory,
                 # L1 lexical/structural sidecar fields for hybrid retrieval.
                 "ctags": ctags_entry,
                 "bm25_document": bm25_document,
+                "graph": graph_metadata,
+                "graph_document": overview_l1,
             }
             content_l2 = prepend_code_location_header(str(chunk.content or ""), code_metadata)
             candidates.append(
@@ -422,6 +444,67 @@ class MemoryWriteAPI:
             return True
         return False
 
+    @classmethod
+    def _resolve_code_graph_relations(cls, chunks: list[CodeChunk], chunk_uris: dict[int, str]) -> None:
+        """Attach build-time resolved graph edges to chunk metadata."""
+        symbol_index: dict[str, list[CodeChunk]] = {}
+
+        def leaf(value: object) -> str:
+            text = str(value or "").strip()
+            if not text:
+                return ""
+            return text.rsplit(".", 1)[-1]
+
+        def add_symbol(symbol: object, chunk: CodeChunk) -> None:
+            key = leaf(symbol)
+            if key:
+                symbol_index.setdefault(key, []).append(chunk)
+
+        for chunk in chunks:
+            add_symbol(chunk.symbol, chunk)
+            graph = (chunk.metadata or {}).get("graph") if chunk.metadata else {}
+            if isinstance(graph, dict):
+                add_symbol(graph.get("symbol"), chunk)
+
+        for chunk in chunks:
+            metadata = dict(chunk.metadata or {})
+            graph = dict(metadata.get("graph") or {})
+            relations: list[dict] = []
+            seen: set[tuple[str, str, str]] = set()
+            for relation_type in ("calls", "extends", "contains"):
+                values = graph.get(relation_type)
+                if not isinstance(values, list):
+                    continue
+                for raw_name in values:
+                    name = str(raw_name or "").strip()
+                    target_key = leaf(name)
+                    if not target_key:
+                        continue
+                    for target in symbol_index.get(target_key, []):
+                        if target is chunk:
+                            continue
+                        target_uri = chunk_uris.get(id(target), "")
+                        dedupe_key = (relation_type, name, target_uri or target.routing_key)
+                        if dedupe_key in seen:
+                            continue
+                        seen.add(dedupe_key)
+                        relations.append(
+                            {
+                                "type": relation_type,
+                                "name": name,
+                                "target_uri": target_uri,
+                                "target_symbol": target.symbol,
+                                "target_path": target.file_path,
+                                "target_start_line": target.start_line,
+                                "target_end_line": target.end_line,
+                                "target_signature": target.signature,
+                                "confidence": "resolved_symbol",
+                            }
+                        )
+            graph["relations"] = relations
+            metadata["graph"] = graph
+            chunk.metadata = metadata
+
     @staticmethod
     def _code_memory_l0(chunk: CodeChunk) -> str:
         """L0 text for code memories."""
@@ -436,6 +519,122 @@ class MemoryWriteAPI:
         if sym:
             return f"{sym} {label}"
         return label
+
+    @staticmethod
+    def _code_memory_l1(
+        *,
+        symbol: str,
+        agfs_uri: str,
+        agfs_directory: str,
+        file_path: str,
+        rel_path: str,
+        start_line: int,
+        end_line: int,
+        signature: str,
+        graph_metadata: dict,
+    ) -> str:
+        """L1 text for code memories: locator + compact CGM-style graph properties."""
+        title = symbol or "code"
+        lines: list[str] = [f"# {title}", "", "## Location"]
+        lines.append(f"- symbol: {title}")
+        if agfs_uri:
+            lines.append(f"- agfs.uri: {agfs_uri}")
+        if agfs_directory:
+            lines.append(f"- agfs.directory: {agfs_directory}")
+        if file_path:
+            file_display = str(file_path).strip().replace("\\", "/")
+            lines.append(f"- source.file: {file_display}")
+        if rel_path:
+            lines.append(f"- path: {rel_path}")
+        if start_line is not None and end_line is not None:
+            lines.append(f"- source.lines: {start_line}-{end_line}")
+        if signature:
+            lines.extend(["", "## Signature", f"```text\n{signature}\n```"])
+
+        def add_list(label: str, values: object, limit: int = 12) -> None:
+            if not isinstance(values, list):
+                return
+            cleaned = [str(v).strip() for v in values if str(v).strip()]
+            if cleaned:
+                lines.append(f"- {label}: {', '.join(cleaned[:limit])}")
+
+        graph_start = len(lines)
+        lines.extend(["", "## Graph"])
+        add_list("graph.calls", graph_metadata.get("calls"))
+        add_list("graph.imports", graph_metadata.get("imports"))
+        add_list("graph.extends", graph_metadata.get("extends"))
+        add_list("graph.contains", graph_metadata.get("contains"))
+        relations = graph_metadata.get("relations")
+        if isinstance(relations, list):
+            relation_lines: list[str] = []
+            for rel in relations[:12]:
+                if not isinstance(rel, dict):
+                    continue
+                relation_type = str(rel.get("type") or "").strip()
+                name = str(rel.get("name") or rel.get("target_symbol") or "").strip()
+                target_path = str(rel.get("target_path") or "").strip().replace("\\", "/")
+                start = rel.get("target_start_line")
+                end = rel.get("target_end_line")
+                target_uri = str(rel.get("target_uri") or "").strip()
+                location = target_path
+                if start is not None and end is not None:
+                    location = f"{location}:{start}-{end}" if location else f"{start}-{end}"
+                if relation_type and name:
+                    suffix = f" -> {location}" if location else ""
+                    if target_uri:
+                        suffix += f" ({target_uri})"
+                    relation_lines.append(f"{relation_type}:{name}{suffix}")
+            if relation_lines:
+                lines.append(f"- graph.resolved_relations: {'; '.join(relation_lines)}")
+        if len(lines) == graph_start + 2:
+            lines.append("- graph.relations: none")
+        return "\n".join(lines).strip() or "code"
+
+    @staticmethod
+    def _slugify_code_value(value: str) -> str:
+        value = value.lower().strip()
+        value = re.sub(r"[^a-z0-9]+", "_", value)
+        return value.strip("_") or "code_chunk"
+
+    @classmethod
+    def _code_memory_slug(cls, chunk: CodeChunk) -> str:
+        language = str(chunk.language or "unknown")
+        file_path = str(chunk.file_path or "")
+        symbol = str(chunk.symbol or chunk.routing_key or "symbol")
+        line_range = (
+            f"{chunk.start_line}_{chunk.end_line}"
+            if chunk.start_line is not None and chunk.end_line is not None
+            else "0_0"
+        )
+        file_name = os.path.basename(file_path) if file_path else "file"
+        file_stem = file_name.rsplit(".", 1)[0] if "." in file_name else file_name
+        prefix = cls._slugify_code_value(f"{language}_{file_stem}_{symbol}_{line_range}")
+        prefix = prefix[:96].rstrip("_") or "code_chunk"
+        identity_line_range = (
+            f"{chunk.start_line}-{chunk.end_line}"
+            if chunk.start_line is not None and chunk.end_line is not None
+            else "0-0"
+        )
+        identity = f"{language}:{file_path}:{symbol}:{identity_line_range}"
+        digest = hashlib.sha1(identity.encode("utf-8")).hexdigest()[:16]
+        return f"{prefix}_{digest}"
+
+    @classmethod
+    def _code_memory_uri(cls, *, chunk: CodeChunk, ctx: RequestContext) -> str:
+        owner_type = "agents"
+        owner_id = ctx.agent_id
+        slug = cls._code_memory_slug(chunk)
+        return f"ctx://{ctx.account_id}/{owner_type}/{owner_id}/memories/code/{slug}"
+
+    @staticmethod
+    def _agfs_directory_for_uri(uri: str) -> str:
+        if not uri.startswith("ctx://"):
+            return ""
+        rest = uri[len("ctx://"):]
+        parts = rest.split("/")
+        if not parts:
+            return ""
+        return "/accounts/" + "/".join(parts)
 
 
 # Singleton instances for simple usage
