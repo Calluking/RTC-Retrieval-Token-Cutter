@@ -1,39 +1,78 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+_SCRIPTS_MCP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 RTC_CACHE_HOME="${RTC_CACHE_HOME:-${XDG_CACHE_HOME:-$HOME/.cache}/retrieval-token-cutter}"
 CACHE_DIR="${SWE_CACHE_DIR:-${RTC_SWE_CACHE_DIR:-$RTC_CACHE_HOME/swe/openclaw/plain/cache}}"
-PY_BIN="${PY_BIN:-python3}"
+
+PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd)"
+RTC_DIR="${RTC_DIR:-$PROJECT_ROOT}"
+CLAUDE_PLUGIN_DIR="${CLAUDE_PLUGIN_DIR:-$RTC_DIR/claude-plugin}"
 export OPENCLAW_MODEL="${OPENCLAW_MODEL:-deepseek/deepseek-v4-flash}"
+PY_BIN="${PY_BIN:-python3}"
+
+PARENT_ENV_SH="$PROJECT_ROOT/source_rtc_env.sh"
+if [ -f "$PARENT_ENV_SH" ]; then
+  # shellcheck disable=SC1090
+  . "$PARENT_ENV_SH" >/dev/null
+fi
+
+if [ -f "$PROJECT_ROOT/setup_env.sh" ]; then
+  # shellcheck disable=SC1091
+  . "$PROJECT_ROOT/setup_env.sh" >/dev/null
+  PY_BIN="${PY_BIN:-python3}"
+  CLAUDE_PLUGIN_DIR="${RTC_CLAUDE_PLUGIN_DIR:-$CLAUDE_PLUGIN_DIR}"
+fi
+
+# Priority: first CLI arg > env > default.
+# Default to a Flask SWE-bench Lite task for faster Python-centric debugging.
 export SWE_LITE_INSTANCE_ID="${1:-${SWE_LITE_INSTANCE_ID:-pallets__flask-4045}}"
 export SWE_USE_DERIVED_LOCAL_ENV="${SWE_USE_DERIVED_LOCAL_ENV:-1}"
 export SWE_VALIDATION_FORCE_LOCAL="${SWE_VALIDATION_FORCE_LOCAL:-1}"
-export RUN_IDX="${RUN_IDX:-0}"
+
+# Parallel-run isolation knobs.
+# RUN_IDX lets callers run multiple jobs concurrently with deterministic offsets.
+RUN_IDX="${RUN_IDX:-0}"
+export RUN_IDX
 
 REPO_BASE="${REPO_BASE:-$CACHE_DIR/repo}"
 mkdir -p "$REPO_BASE"
 
 ensure_python_runtime() {
   if "$PY_BIN" - <<'PY' >/dev/null 2>&1
-import json
-import urllib.request
+import flask
+import mcp
 PY
   then
     return 0
   fi
 
-  if ! command -v python3 >/dev/null 2>&1; then
-    echo "No usable Python interpreter found." >&2
+  if ! command -v uv >/dev/null 2>&1; then
+    echo "Missing Python deps (flask/mcp), and uv is not installed." >&2
+    echo "Install uv or pre-install deps, e.g. pip install -e '.[mcp]'." >&2
     exit 1
   fi
-  PY_BIN="$(command -v python3)"
+
+    echo "[setup] Installing runtime deps with uv sync --extra mcp --extra swe ..." >&2
+  (cd "$RTC_DIR" && uv sync --extra mcp --extra swe)
+  PY_BIN="$RTC_DIR/.venv/bin/python"
+
+  if ! "$PY_BIN" - <<'PY' >/dev/null 2>&1
+import flask
+import mcp
+PY
+  then
+    echo "Dependency bootstrap failed. Please inspect uv sync output above." >&2
+    exit 1
+  fi
 }
 
 ensure_python_runtime
 
-prompt_exports="$(
-  REPO_BASE="$REPO_BASE" "$PY_BIN" - <<'PY'
+# Resolve SWE-bench Lite row and generate prompt text.
+_swe_prompt_exports="$(
+  REPO_BASE="$REPO_BASE" \
+  "$PY_BIN" - <<'PY'
 import json
 import os
 import sys
@@ -49,7 +88,7 @@ repo_base = os.environ["REPO_BASE"]
 cached_inst_path = os.path.join(repo_base, target, "instance.json") if target else ""
 
 def fetch_rows(offset: int, length: int = 100) -> dict:
-    query = urllib.parse.urlencode(
+    q = urllib.parse.urlencode(
         {
             "dataset": DATASET,
             "config": "default",
@@ -58,8 +97,9 @@ def fetch_rows(offset: int, length: int = 100) -> dict:
             "length": str(length),
         }
     )
-    with urllib.request.urlopen(f"{BASE}?{query}", timeout=120) as response:
-        return json.loads(response.read().decode("utf-8"))
+    url = f"{BASE}?{q}"
+    with urllib.request.urlopen(url, timeout=120) as r:
+        return json.loads(r.read().decode("utf-8"))
 
 def find_row() -> dict:
     if cached_inst_path and os.path.isfile(cached_inst_path):
@@ -69,8 +109,8 @@ def find_row() -> dict:
     total = int(first.get("num_rows_total", 0))
     if not target:
         return first["rows"][0]["row"]
-    for offset in range(0, max(total, 0), 100):
-        block = fetch_rows(offset, 100)
+    for off in range(0, max(total, 0), 100):
+        block = fetch_rows(off, 100)
         for item in block.get("rows", []):
             row = item["row"]
             if row.get("instance_id") == target:
@@ -79,25 +119,24 @@ def find_row() -> dict:
     sys.exit(1)
 
 row = find_row()
-instance_id = row["instance_id"]
+iid = row["instance_id"]
 repo = row["repo"]
 base_commit = row["base_commit"]
 problem = (row.get("problem_statement") or "").strip()
 hints = (row.get("hints_text") or "").strip()
-
-instance_path = os.path.join(repo_base, instance_id, "instance.json")
-os.makedirs(os.path.dirname(instance_path), exist_ok=True)
-with open(instance_path, "w", encoding="utf-8") as f:
+inst_path = os.path.join(repo_base, iid, "instance.json")
+os.makedirs(os.path.dirname(inst_path), exist_ok=True)
+with open(inst_path, "w", encoding="utf-8") as f:
     json.dump(row, f, indent=2, ensure_ascii=False)
     f.write("\n")
 
 def esc(value: str) -> str:
     return json.dumps(value)
 
-print(f"export SWE_INSTANCE_ID={esc(instance_id)}")
+print(f"export SWE_INSTANCE_ID={esc(iid)}")
 print(f"export SWE_REPO={esc(repo)}")
 print(f"export SWE_BASE_COMMIT={esc(base_commit)}")
-print(f"export SWE_INSTANCE_JSON={esc(os.path.abspath(instance_path))}")
+print(f"export SWE_INSTANCE_JSON={esc(os.path.abspath(inst_path))}")
 
 prompt = f"""You are working on a real open-source project as in the SWE-bench Lite benchmark.
 
@@ -119,17 +158,6 @@ Optional prior discussion (`hints_text`):
 ---
 """
 prompt += """
-Task:
-1. Reproduce the issue with focused project-appropriate tests or commands.
-2. Use the failing behavior to locate the best matching implementation site.
-3. Fix the bug using the available editing tools.
-4. Re-run verification and ensure the relevant tests pass.
-
-Final answer must include:
-- root cause
-- changed files
-- verification command/output
-
 Important SWE-bench rule:
 - Do not edit benchmark tests, test files, or test fixtures.
 - Make the minimal production source-code change needed to satisfy the issue.
@@ -144,8 +172,7 @@ Important SWE-bench rule:
   that leaves those endpoint checks as `AssertionError` is incomplete and will
   fail validation; do not preserve that assertion behavior.
 """
-
-prompt_path = os.path.join(repo_base, instance_id, "PROMPT_OPENCLAW_PLAIN.txt")
+prompt_path = os.path.join(repo_base, iid, "PROMPT_OPENCLAW_PLAIN.txt")
 with open(prompt_path, "w", encoding="utf-8") as f:
     f.write(prompt)
 print(f"export SWE_PROMPT_FILE={esc(os.path.abspath(prompt_path))}")
@@ -154,10 +181,10 @@ PY
   echo "[setup] Failed to resolve SWE-bench instance metadata for ${SWE_LITE_INSTANCE_ID:-<unset>}." >&2
   exit 1
 }
-eval "$prompt_exports"
+eval "$_swe_prompt_exports"
 
 STAMP="$(date +%Y%m%d-%H%M%S)"
-OUTPUT_ROOT="${SWE_OUTPUT_ROOT:-${RTC_SWE_OUTPUT_ROOT:-$SCRIPT_DIR/output_logs}}"
+OUTPUT_ROOT="${SWE_OUTPUT_ROOT:-${RTC_SWE_OUTPUT_ROOT:-$_SCRIPTS_MCP_DIR/output_logs}}"
 EXPERIMENT_DIR="$OUTPUT_ROOT/${STAMP}-swe-lite-openclaw-plain-r${RUN_IDX}-p$$"
 LOGS_DIR="$EXPERIMENT_DIR/logs"
 WORK_DIR="$EXPERIMENT_DIR/workspace"
@@ -185,16 +212,16 @@ CANON_LOCK="$LOCKS_DIR/${SWE_INSTANCE_ID}.canon.lock"
   fi
 
   if [ ! -d "$CANON_DIR/.git" ]; then
-    tmp_dir="${CANON_DIR}.tmp.$$"
-    rm -rf "$tmp_dir"
+    _canon_tmp="${CANON_DIR}.tmp.$$"
+    rm -rf "$_canon_tmp"
     echo "Cloning https://github.com/${SWE_REPO}.git ..." >&2
-    git clone "https://github.com/${SWE_REPO}.git" "$tmp_dir"
-    if ! canon_repo_ok "$tmp_dir"; then
-      echo "[setup] Canonical repo clone did not produce a valid HEAD: $tmp_dir" >&2
-      rm -rf "$tmp_dir"
+    git clone "https://github.com/${SWE_REPO}.git" "$_canon_tmp"
+    if ! canon_repo_ok "$_canon_tmp"; then
+      echo "[setup] Canonical repo clone did not produce a valid HEAD: $_canon_tmp" >&2
+      rm -rf "$_canon_tmp"
       exit 1
     fi
-    mv "$tmp_dir" "$CANON_DIR"
+    mv "$_canon_tmp" "$CANON_DIR"
   fi
 
   git -C "$CANON_DIR" fetch --all --prune
@@ -207,14 +234,13 @@ CANON_LOCK="$LOCKS_DIR/${SWE_INSTANCE_ID}.canon.lock"
   rm -rf "$WORK_DIR"
   git clone --quiet "$CANON_DIR" "$WORK_DIR"
 } 9>"$CANON_LOCK"
-
 cp -a "$SWE_INSTANCE_JSON" "$EXPERIMENT_DIR/instance.json"
 cp -a "$SWE_PROMPT_FILE" "$WORK_DIR/TASK.md"
 cat >>"$WORK_DIR/TASK.md" <<EOF2
 
-## Workspace
-- OpenClaw is launched from the SWE task checkout: \`$WORK_DIR\`.
-- Make edits for this SWE task in the task checkout: \`$WORK_DIR\`.
+## Workspace Paths
+- OpenClaw is launched against the SWE task checkout: \`$WORK_DIR\`.
+- Edits for this SWE task should be made in the task checkout: \`$WORK_DIR\`.
 EOF2
 
 OPENCLAW_STDOUT="$LOGS_DIR/openclaw-stdout.log"
@@ -224,19 +250,19 @@ if [ "$SWE_USE_DERIVED_LOCAL_ENV" = "1" ]; then
   echo "[setup] Deriving local SWE-bench env ..." >&2
   LOCAL_ENV_PREP_LOG="$LOGS_DIR/swe-local-env-prepare.log"
   LOCAL_ENV_EXPORTS_FILE="$LOGS_DIR/swe-local-env-exports.sh"
-  if ! "$PY_BIN" "$SCRIPT_DIR/prepare_swe_local_env.py" "$SWE_INSTANCE_JSON" "$WORK_DIR" "$EXPERIMENT_DIR" \
+  if ! "$PY_BIN" "$_SCRIPTS_MCP_DIR/prepare_swe_local_env.py" "$SWE_INSTANCE_JSON" "$WORK_DIR" "$EXPERIMENT_DIR" \
       > "$LOCAL_ENV_EXPORTS_FILE" 2>> "$LOCAL_ENV_PREP_LOG"; then
     cat "$LOCAL_ENV_EXPORTS_FILE" >> "$LOCAL_ENV_PREP_LOG" 2>/dev/null || true
     echo "[setup] Failed to derive local SWE-bench env; see $LOCAL_ENV_PREP_LOG" >&2
     exit 1
   fi
   cat "$LOCAL_ENV_EXPORTS_FILE" >> "$LOCAL_ENV_PREP_LOG"
-  local_env_exports="$(grep '^export ' "$LOCAL_ENV_EXPORTS_FILE" || true)"
-  if [ -z "$local_env_exports" ]; then
+  _local_env_exports="$(grep '^export ' "$LOCAL_ENV_EXPORTS_FILE" || true)"
+  if [ -z "$_local_env_exports" ]; then
     echo "[setup] Local SWE-bench env derivation produced no exports; see $LOCAL_ENV_PREP_LOG" >&2
     exit 1
   fi
-  eval "$local_env_exports"
+  eval "$_local_env_exports"
   echo "[setup] Refreshing editable install for current SWE workspace ..." >&2
   if ! (
     cd "$WORK_DIR"
@@ -250,22 +276,29 @@ PY
   fi
   cat >>"$WORK_DIR/TASK.md" <<EOF2
 
-## Local SWE-bench Environment
-- This workspace has a task-specific environment derived from the official SWE-bench \`TestSpec\`.
-- Use \`$SWE_TASK_ENV_HELPER\` for reproduction and verification commands.
-- Prefer \`./RUN_IN_SWE_LOCAL_ENV.sh pytest -q <target>\`.
-- Do not use raw \`python\` or raw \`pytest\` for task verification; those may hit the host interpreter.
+	## Local SWE-bench Environment
+	- This workspace has a task-specific environment derived from the official SWE-bench \`TestSpec\`.
+	- Use \`$SWE_TASK_ENV_HELPER\` for every reproduction and verification command.
+	- Do not use raw \`python\`, raw \`python -m pytest\`, or raw \`pytest\`; those may hit the host environment.
+	- Use:
+	  - \`./RUN_IN_SWE_LOCAL_ENV.sh pytest -q <target>\`
+	  - \`./RUN_IN_SWE_LOCAL_ENV.sh python -m pytest -q <target>\`
+	- For inline Python snippets, prefer:
+	  - \`./RUN_IN_SWE_LOCAL_ENV.sh --stdin-python <<'PY'\`
+	  - \`...\`
+	  - \`PY\`
+	- If editable-install state needs refreshing after a structural change, use:
+	  - \`./RUN_IN_SWE_LOCAL_ENV.sh --reinstall pytest -q <target>\`
+	- Avoid shared temp files like \`/tmp/build.log\`; keep per-run logs under the workspace or \`logs/\`.
+	- Local env prefix: \`$SWE_TASK_ENV_PREFIX\`
+	- Local env create log: \`$SWE_TASK_ENV_CREATE_LOG\`
+- Local env command log: \`$SWE_TASK_ENV_COMMAND_LOG\`
 EOF2
 fi
 
-OPENCLAW_AGENT_ID="${OPENCLAW_AGENT_ID:-swe-openclaw-plain-r${RUN_IDX}-p$$}"
-OPENCLAW_SESSION_ID="${OPENCLAW_SESSION_ID:-swe-openclaw-plain-r${RUN_IDX}-p$$}"
-OPENCLAW_TIMEOUT="${OPENCLAW_TIMEOUT:-900}"
-
 WORKSPACE_GIT_MOVED=0
 OPENCLAW_PLUGINS_BACKUP="$LOGS_DIR/openclaw-plugins-config.before.json"
-OPENCLAW_PLUGIN_PATCH="$LOGS_DIR/openclaw-disable-local-plugins.patch.json"
-
+OPENCLAW_PLUGIN_PATCH="$LOGS_DIR/openclaw-disable-rtc-plugin.patch.json"
 disable_generated_workspace_git() {
   [ "${WORKSPACE_GIT_MOVED:-0}" = "0" ] || return 0
   [ -n "${WORK_DIR:-}" ] || return 0
@@ -280,6 +313,18 @@ showing output_logs/workspace as a nested Git repository.
 EOF2
     WORKSPACE_GIT_MOVED=1
   fi
+}
+cleanup_generated_workspace() {
+  disable_generated_workspace_git
+  restore_openclaw_plugin_config
+}
+
+json_string() {
+  "$PY_BIN" - "$1" <<'PY'
+import json
+import sys
+print(json.dumps(sys.argv[1]))
+PY
 }
 
 restore_openclaw_plugin_config() {
@@ -298,30 +343,21 @@ PY
     > "$LOGS_DIR/openclaw-config-restore.log" 2>&1 || true
 }
 
-cleanup() {
-  restore_openclaw_plugin_config
-  disable_generated_workspace_git
-}
-trap cleanup EXIT
+trap cleanup_generated_workspace EXIT
 
-# The user's OpenClaw config may have RTC enabled globally. For the legacy
-# runner, isolate the run by temporarily clearing local plugin load paths and
-# disabling the RTC entry, then restore the original plugin config on exit.
+OPENCLAW_AGENT_ID="${OPENCLAW_AGENT_ID:-swe-openclaw-plain-r${RUN_IDX}-p$$}"
+OPENCLAW_SESSION_ID="${OPENCLAW_SESSION_ID:-swe-openclaw-plain-r${RUN_IDX}-p$$}"
+OPENCLAW_TIMEOUT="${OPENCLAW_TIMEOUT:-900}"
+
+echo "[setup] Disabling RTC plugin for plain OpenClaw SWE run" >&2
 openclaw config get plugins > "$OPENCLAW_PLUGINS_BACKUP" 2> "$LOGS_DIR/openclaw-config-get-plugins.stderr" || echo '{}' > "$OPENCLAW_PLUGINS_BACKUP"
-openclaw config set plugins.load.paths '[]' --strict-json \
-  > "$LOGS_DIR/openclaw-config-disable-load-paths.log" 2>&1 || true
 openclaw config set plugins.entries.retrieval-token-cutter.enabled false --strict-json \
   > "$LOGS_DIR/openclaw-config-disable-rtc.log" 2>&1 || true
-OPENCLAW_MODEL_PROVIDER="${OPENCLAW_MODEL%%/*}"
-OPENCLAW_LEGACY_ALLOW_JSON="$("$PY_BIN" - "$OPENCLAW_MODEL_PROVIDER" <<'PY'
-import json
-import sys
-provider = (sys.argv[1] or "").strip()
-print(json.dumps([provider] if provider else []))
-PY
-)"
-openclaw config set plugins.allow "$OPENCLAW_LEGACY_ALLOW_JSON" --strict-json \
-  > "$LOGS_DIR/openclaw-config-allow-core-provider.log" 2>&1 || true
+openclaw config set plugins.allow null --strict-json \
+  > "$LOGS_DIR/openclaw-config-allow-default-tools.log" 2>&1 || true
+
+openclaw gateway restart \
+  > "$LOGS_DIR/openclaw-gateway-restart.log" 2>&1 || true
 
 echo "[setup] Creating OpenClaw agent $OPENCLAW_AGENT_ID for $WORK_DIR" >&2
 openclaw agents add "$OPENCLAW_AGENT_ID" \
@@ -358,8 +394,8 @@ if [ -n "$SESSION_JSONL" ] && [ -f "$SESSION_JSONL" ]; then
   cp -f "$SESSION_JSONL" "$LOGS_DIR/"
   [ -f "$SESSION_TRAJECTORY_JSONL" ] && cp -f "$SESSION_TRAJECTORY_JSONL" "$LOGS_DIR/"
   [ -f "$SESSION_TRAJECTORY_PATH_JSON" ] && cp -f "$SESSION_TRAJECTORY_PATH_JSON" "$LOGS_DIR/"
-  "$PY_BIN" "$SCRIPT_DIR/render_jsonl_turns.py" "$SESSION_JSONL" > "$EXPERIMENT_DIR/latest_session_render.txt" || true
-  "$PY_BIN" - "$SESSION_JSONL" "$EXPERIMENT_DIR/openclaw_tool_summary.json" <<'PY' || true
+  "$PY_BIN" "$_SCRIPTS_MCP_DIR/render_jsonl_turns.py" "$SESSION_JSONL" > "$EXPERIMENT_DIR/latest_session_render.txt" || true
+	  "$PY_BIN" - "$SESSION_JSONL" "$EXPERIMENT_DIR/openclaw_tool_summary.json" <<'PY' || true
 import json
 import sys
 from pathlib import Path
@@ -443,7 +479,7 @@ PY
 else
   echo "[validate] Starting attached validation for $SWE_INSTANCE_ID ..." >&2
   set +e
-  "$PY_BIN" "$SCRIPT_DIR/validate_swe_run.py" "$SWE_INSTANCE_JSON" "$WORK_DIR" "$EXPERIMENT_DIR" \
+  "$PY_BIN" "$_SCRIPTS_MCP_DIR/validate_swe_run.py" "$SWE_INSTANCE_JSON" "$WORK_DIR" "$EXPERIMENT_DIR" \
     > "$LOGS_DIR/validation-summary.json" 2> "$LOGS_DIR/validation-stderr.log"
   VALIDATION_RC=$?
   set -e

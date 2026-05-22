@@ -20,7 +20,7 @@
       "description": "Read file contents. For code tasks, use only when rtc_search_code misses the needed exact text after a focused retry."
     },
     "rtc_search_code": {
-      "description": "Search source, tests, docs, and release notes. content_excerpt is exact editable file text for rtc_edit_file.old_string; do not re-read files already returned with usable snippets."
+      "description": "Search source, tests, docs, and release notes. content_excerpt is exact editable file text for edit replacement context; do not re-read files already returned with usable snippets."
     },
     "rtc_edit_file": {
       "description": "Edit source/doc files through exact replacement. Build old_string from exact RTC search snippets; if exact text is still missing after search retry, use a narrow read."

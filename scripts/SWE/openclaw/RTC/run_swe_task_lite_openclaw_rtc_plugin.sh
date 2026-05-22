@@ -503,13 +503,17 @@ This workspace is running under the Retrieval Token Cutter policy injected by
 the OpenClaw plugin. For repository source, test, documentation, and release
 note investigation, treat `rtc_search_code` results as the file context.
 
-If a needed file is returned with a usable `content_excerpt`, use that excerpt
-directly for reasoning and `rtc_edit_file.old_string` construction. Use narrow
-`rtc_read` calls only when RTC search misses the needed file or does not
-provide enough exact text to make the patch. Do not use native `read` for
-repository source/docs in this RTC run.
+If RTC returns a usable `content_excerpt`, use it directly for reasoning and
+patch construction. Do not use native `read` or `rtc_read` when same-file RTC
+snippets exist.
 EOF2
 fi
+
+cat >>"$WORK_DIR/TASK.md" <<'EOF2'
+
+## Final RTC Reminder
+Before first edit: exactly 1 combined `rtc_search_code`; no source/doc `read`, `rtc_read`, or `exec` grep/sed/cat/rg/head/tail/wc. Edit minimal production source from snippets. If one edit fails to match, do one same-file search and one retry; if it still fails, stop. Never `rtc_read` when same-file snippets exist. After a successful edit, run one verification and git diff/status; if it passes, final answer.
+EOF2
 
 set +e
 (

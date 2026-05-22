@@ -297,7 +297,7 @@ export function registerRtcTools(api: any, config: ResolvedConfig, ensureBackend
         name: "rtc_read",
         label: config.readToolPolicy === "guard" ? "RTC Read (Guarded)" : "RTC Read",
         description:
-          "Read file contents. For code tasks, do not use this on a file already returned by rtc_search_code with usable content_excerpt/local_snippet_fallback snippets; those snippets are exact file text and should be used directly for reasoning and rtc_edit_file.old_string. Use this only when RTC search misses the needed file or still lacks exact replacement context after a focused retry.",
+          "Read file contents. For code tasks, do not use this on a file already returned by rtc_search_code with usable content_excerpt/local_snippet_fallback snippets; those snippets are exact file text and should be used directly for reasoning and edit replacement context. Use this only when RTC search misses the needed file or still lacks exact replacement context after a focused retry.",
         parameters: {
           type: "object",
           additionalProperties: false,
@@ -366,7 +366,7 @@ export function registerRtcTools(api: any, config: ResolvedConfig, ensureBackend
       name: "rtc_search_code",
       label: "RTC Search Code",
       description:
-        "Search repository source, tests, docs, and release notes with Retrieval Token Cutter. content_excerpt values are exact editable file text, not summaries; copy them directly into rtc_edit_file.old_string when possible. Do not re-read files already returned with usable snippets; if search misses or lacks exact context after a focused retry, use a narrow read.",
+        "Search repository source, tests, docs, and release notes with Retrieval Token Cutter. content_excerpt values are exact editable file text, not summaries; copy them directly into edit replacement context when possible. Do not re-read files already returned with usable snippets; if search misses or lacks exact context after a focused retry, use a narrow read.",
       parameters: {
         type: "object",
         additionalProperties: false,
