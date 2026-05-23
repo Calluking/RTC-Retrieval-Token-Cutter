@@ -31,7 +31,7 @@ cd ..
 cp env.sh.example env.sh
 export RTC_EMBEDDING_API_KEY="<your-key>"
 export RTC_EMBEDDING_BASE_URL="https://api.openai-proxy.org"
-export RTC_EMBEDDING_MODEL="text-embedding-3-large"
+export RTC_EMBEDDING_MODEL="text-embedding-3-small"
 ```
 
 如果 shell 使用 HTTP(S) 或 SOCKS 代理，请在启动 Claude 前 source 顶层

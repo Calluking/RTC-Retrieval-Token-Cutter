@@ -1,0 +1,64 @@
+{
+  "dataset": "/home/luzh22/og-enhance/20260513/swe_lite_og_dev2_slimdown/source_tree/artifacts/legacy-search-dataset/search_targets.jsonl",
+  "source_predictions": "/home/luzh22/og-enhance/20260513/swe_lite_og_dev2_slimdown/source_tree/artifacts/retrieval-eval/predictions.jsonl",
+  "predictions": "/home/luzh22/og-enhance/20260513/swe_lite_og_dev2_slimdown/source_tree/artifacts/retrieval-embedding-exp/embedding_variant_union_predictions.jsonl",
+  "usable_records": 101,
+  "candidate_union_recall": 0.7327,
+  "experiment_scope": "rerank_existing_4_route_top5_union",
+  "variants": [
+    {
+      "variant": "query_plus_issue",
+      "top1": 0.2376,
+      "top3": 0.4851,
+      "top5": 0.5743,
+      "top1_count": 24,
+      "top3_count": 49,
+      "top5_count": 58
+    },
+    {
+      "variant": "late_interaction_proxy",
+      "top1": 0.297,
+      "top3": 0.505,
+      "top5": 0.5644,
+      "top1_count": 30,
+      "top3_count": 51,
+      "top5_count": 57
+    },
+    {
+      "variant": "query_plus_legacy_scope",
+      "top1": 0.2871,
+      "top3": 0.4059,
+      "top5": 0.5149,
+      "top1_count": 29,
+      "top3_count": 41,
+      "top5_count": 52
+    },
+    {
+      "variant": "field_weighted_embedding",
+      "top1": 0.297,
+      "top3": 0.396,
+      "top5": 0.5149,
+      "top1_count": 30,
+      "top3_count": 40,
+      "top5_count": 52
+    },
+    {
+      "variant": "baseline_embedding_proxy",
+      "top1": 0.2178,
+      "top3": 0.3366,
+      "top5": 0.4752,
+      "top1_count": 22,
+      "top3_count": 34,
+      "top5_count": 48
+    },
+    {
+      "variant": "pseudo_relevance_feedback",
+      "top1": 0.1782,
+      "top3": 0.2871,
+      "top5": 0.396,
+      "top1_count": 18,
+      "top3_count": 29,
+      "top5_count": 40
+    }
+  ]
+}

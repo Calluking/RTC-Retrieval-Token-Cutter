@@ -1,0 +1,81 @@
+{
+  "dataset": "/home/luzh22/og-enhance/20260513/swe_lite_og_dev2_slimdown/source_tree/artifacts/legacy-search-dataset/search_targets.jsonl",
+  "predictions": "/home/luzh22/og-enhance/20260513/swe_lite_og_dev2_slimdown/source_tree/artifacts/bm25-route-exp/bm25_route_predictions.jsonl",
+  "experiment_scope": "canonical_bm25_route_variants",
+  "usable_records": 101,
+  "candidate_limit": 80,
+  "max_snippets_per_record": 500,
+  "candidate_recall": 0.9307,
+  "variants": [
+    {
+      "variant": "bm25f_symbol_heavy",
+      "top1": 0.3366,
+      "top3": 0.505,
+      "top5": 0.6337,
+      "top1_count": 34,
+      "top3_count": 51,
+      "top5_count": 64,
+      "avg_score_time_sec": 0.063072
+    },
+    {
+      "variant": "bm25f_code_fields_current",
+      "top1": 0.3267,
+      "top3": 0.4653,
+      "top5": 0.5941,
+      "top1_count": 33,
+      "top3_count": 47,
+      "top5_count": 60,
+      "avg_score_time_sec": 0.062539
+    },
+    {
+      "variant": "bm25f_identifier_summary",
+      "top1": 0.2772,
+      "top3": 0.5149,
+      "top5": 0.5743,
+      "top1_count": 28,
+      "top3_count": 52,
+      "top5_count": 58,
+      "avg_score_time_sec": 0.072696
+    },
+    {
+      "variant": "bm25f_path_heavy",
+      "top1": 0.2673,
+      "top3": 0.4158,
+      "top5": 0.5545,
+      "top1_count": 27,
+      "top3_count": 42,
+      "top5_count": 56,
+      "avg_score_time_sec": 0.063345
+    },
+    {
+      "variant": "bm25f_no_body",
+      "top1": 0.3069,
+      "top3": 0.4455,
+      "top5": 0.5347,
+      "top1_count": 31,
+      "top3_count": 45,
+      "top5_count": 54,
+      "avg_score_time_sec": 0.032882
+    },
+    {
+      "variant": "bm25_default",
+      "top1": 0.2277,
+      "top3": 0.3663,
+      "top5": 0.4752,
+      "top1_count": 23,
+      "top3_count": 37,
+      "top5_count": 48,
+      "avg_score_time_sec": 0.028064
+    },
+    {
+      "variant": "bm25_field_rrf",
+      "top1": 0.1386,
+      "top3": 0.3069,
+      "top5": 0.4653,
+      "top1_count": 14,
+      "top3_count": 31,
+      "top5_count": 47,
+      "avg_score_time_sec": 0.134963
+    }
+  ]
+}

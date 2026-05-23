@@ -1,0 +1,25 @@
+{
+  "runs": 39,
+  "datasets": {
+    "grep": {
+      "records": 153,
+      "records_with_targets": 101,
+      "output": "artifacts/legacy-exploration-datasets/grep.jsonl"
+    },
+    "glob": {
+      "records": 4,
+      "records_with_targets": 4,
+      "output": "artifacts/legacy-exploration-datasets/glob.jsonl"
+    },
+    "find": {
+      "records": 74,
+      "records_with_targets": 30,
+      "output": "artifacts/legacy-exploration-datasets/find.jsonl"
+    },
+    "direct_read": {
+      "records": 250,
+      "records_with_targets": 250,
+      "output": "artifacts/legacy-exploration-datasets/direct_read.jsonl"
+    }
+  }
+}

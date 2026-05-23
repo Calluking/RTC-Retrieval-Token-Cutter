@@ -1,0 +1,94 @@
+{
+  "dataset": "/home/luzh22/og-enhance/20260513/swe_lite_og_dev2_slimdown/source_tree/artifacts/legacy-search-dataset/search_targets.jsonl",
+  "predictions": "/home/luzh22/og-enhance/20260513/swe_lite_og_dev2_slimdown/source_tree/artifacts/ctags-route-exp/ctags_route_predictions.jsonl",
+  "experiment_scope": "canonical_ctags_symbol_route_variants",
+  "metric": "grep candidate pool -> ctags/symbol route ranks snippets independently -> top1/top3/top5 hit",
+  "usable_records": 101,
+  "candidate_limit": 80,
+  "max_snippets_per_record": 500,
+  "candidate_recall": 0.9307,
+  "avg_snippets_per_search": 493.24,
+  "avg_candidate_build_sec": 0.390876,
+  "variants": [
+    {
+      "variant": "ctags_current_baseline",
+      "top1": 0.3366,
+      "top3": 0.495,
+      "top5": 0.604,
+      "top1_count": 34,
+      "top3_count": 50,
+      "top5_count": 61,
+      "avg_score_time_sec": 0.000559
+    },
+    {
+      "variant": "path_scoped_symbol",
+      "top1": 0.4059,
+      "top3": 0.5149,
+      "top5": 0.5842,
+      "top1_count": 41,
+      "top3_count": 52,
+      "top5_count": 59,
+      "avg_score_time_sec": 0.007219
+    },
+    {
+      "variant": "hybrid_symbol_decl",
+      "top1": 0.297,
+      "top3": 0.4158,
+      "top5": 0.5446,
+      "top1_count": 30,
+      "top3_count": 42,
+      "top5_count": 55,
+      "avg_score_time_sec": 0.145469
+    },
+    {
+      "variant": "exact_prefix_symbol",
+      "top1": 0.2475,
+      "top3": 0.396,
+      "top5": 0.5248,
+      "top1_count": 25,
+      "top3_count": 40,
+      "top5_count": 53,
+      "avg_score_time_sec": 0.005193
+    },
+    {
+      "variant": "field_rrf_symbol",
+      "top1": 0.2277,
+      "top3": 0.3465,
+      "top5": 0.5149,
+      "top1_count": 23,
+      "top3_count": 35,
+      "top5_count": 52,
+      "avg_score_time_sec": 0.013713
+    },
+    {
+      "variant": "zoekt_like_symbol_signal",
+      "top1": 0.2772,
+      "top3": 0.4257,
+      "top5": 0.505,
+      "top1_count": 28,
+      "top3_count": 43,
+      "top5_count": 51,
+      "avg_score_time_sec": 0.01498
+    },
+    {
+      "variant": "identifier_split_abbrev",
+      "top1": 0.2475,
+      "top3": 0.3861,
+      "top5": 0.4653,
+      "top1_count": 25,
+      "top3_count": 39,
+      "top5_count": 47,
+      "avg_score_time_sec": 0.127872
+    },
+    {
+      "variant": "kind_aware_declaration",
+      "top1": 0.2574,
+      "top3": 0.3762,
+      "top5": 0.4653,
+      "top1_count": 26,
+      "top3_count": 38,
+      "top5_count": 47,
+      "avg_score_time_sec": 0.005226
+    }
+  ]
+}

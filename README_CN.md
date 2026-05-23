@@ -53,7 +53,7 @@ uv sync --extra mcp --extra swe
 cp env.sh.example env.sh
 export RTC_EMBEDDING_API_KEY="<your-key>"
 export RTC_EMBEDDING_BASE_URL="https://api.openai-proxy.org"
-export RTC_EMBEDDING_MODEL="text-embedding-3-large"
+export RTC_EMBEDDING_MODEL="text-embedding-3-small"
 ```
 
 如果使用上面的 `.venv`，`PY_BIN` 可以留空，`setup_env.sh` 会自动找到 `.venv/bin/python`。

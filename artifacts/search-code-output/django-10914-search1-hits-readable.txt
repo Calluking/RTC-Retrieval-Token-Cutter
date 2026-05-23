@@ -1,0 +1,400 @@
+query: FILE_UPLOAD_PERMISSIONS setting default
+hit_count: 5
+
+bootstrap summary:
+  candidate_count: 20
+  candidate_count_all: 160
+  candidate_ingest_enabled: False
+  mode: grep_glob_candidates
+  fallback: hybrid_direct
+  grep_terms: ['FILE_UPLOAD_PERMISSIONS', 'setting', 'default']
+  hybrid_counts: {'bm25': 5, 'ctags': 5, 'embedding': 5, 'graph': 5, 'union_candidates': 14}
+  timings: {'bm25_sec': 0.069, 'candidate_ingest_sec': 0.0, 'collect_candidates_sec': 0.301, 'ctags_sec': 0.001, 'embedding_sec': 18.861, 'graph_sec': 0.013, 'hybrid_fuse_sec': 0.001, 'rank_candidates_sec': 0.02}
+
+candidate_paths:
+  - django/conf/global_settings.py
+  - tests/file_storage/tests.py
+  - tests/test_utils/tests.py
+  - tests/project_template/test_settings.py
+  - django/core/files/storage.py
+  - tests/staticfiles_tests/test_storage.py
+  - tests/admin_default_site/tests.py
+  - js_tests/qunit/qunit.js
+  - tests/runtests.py
+  - tests/postgres_tests/test_array.py
+  - django/http/request.py
+  - django/db/utils.py
+  - tests/urlpatterns_reverse/tests.py
+  - django/db/backends/mysql/client.py
+  - tests/admin_scripts/tests.py
+  - tests/auth_tests/test_hashers.py
+  - tests/auth_tests/test_management.py
+  - django/db/backends/oracle/creation.py
+  - tests/auth_tests/test_views.py
+  - django/db/backends/oracle/base.py
+
+========================================================================================
+HIT 1: DjangoAdminDefaultSettings type in tests/admin_scripts/tests.py (lines 208-271)
+uri: file:///home/luzh22/og-enhance/20260513/swe_lite_og_dev2_slimdown/source_tree/scripts/SWE/claude/RTC/output_logs/20260523-142320-swe-lite-rtc-r7300-p365424/workspace/tests/admin_scripts/tests.py#L208-L271:DjangoAdminDefaultSettings
+symbol: DjangoAdminDefaultSettings (type)
+lines: 208-271
+score: 0.4658124843105367
+fused_scores: {'bm25': 0.21939102770782418, 'ctags': 1.0, 'embedding': 0.2465882830746236, 'graph': 1.0}
+----------------------------------------------------------------------------------------
+# tests/admin_scripts/tests.py (lines 208-271)
+
+class DjangoAdminDefaultSettings(AdminScriptTestCase):
+    """A series of tests for django-admin.py when using a settings.py file that
+    contains the test application.
+    """
+    def setUp(self):
+        super().setUp()
+        self.write_settings('settings.py')
+
+    def test_builtin_command(self):
+        "default: django-admin builtin commands fail with an error when no settings provided"
+        args = ['check', 'admin_scripts']
+        out, err = self.run_django_admin(args)
+        self.assertNoOutput(out)
+        self.assertOutput(err, 'settings are not configured')
+
+    def test_builtin_with_settings(self):
+        "default: django-admin builtin commands succeed if settings are provided as argument"
+        args = ['check', '--settings=test_project.settings', 'admin_scripts']
+        out, err = self.run_django_admin(args)
+        self.assertNoOutput(err)
+        self.assertOutput(out, SYSTEM_CHECK_MSG)
+
+    def test_builtin_with_environment(self):
+        "default: django-admin builtin commands succeed if settings are provided in the environment"
+        args = ['check', 'admin_scripts']
+        out, err = self.run_django_admin(args, 'test_project.settings')
+        self.assertNoOutput(err)
+        self.assertOutput(out, SYSTEM_CHECK_MSG)
+
+    def test_builtin_with_bad_settings(self):
+        "default: django-admin builtin commands fail if settings file (from argument) doesn't exist"
+        args = ['check', '--settings=bad_settings', 'admin_scripts']
+        out, err = self.run_django_admin(args)
+        self.assertNoOutput(out)
+        self.assertOutput(err, "No module named '?bad_settings'?", regex=True)
+
+    def test_builtin_with_bad_environment(self):
+        "default: django-admin builtin commands fail if settings file (from environment) doesn't exist"
+        args = ['check', 'admin_scripts']
+        out, err = self.run_django_admin(args, 'bad_settings')
+        self.assertNoOutput(out)
+        self.assertOutput(err, "No module named '?bad_settings'?", regex=True)
+
+    def test_custom_command(self):
+        "default: django-admin can't execute user commands if it isn't provided settings"
+        args = ['noargs_command']
+        out, err = self.run_django_admin(args)
+        self.assertNoOutput(out)
+        self.assertOutput(err, "No Django settings specified")
+        self.assertOutput(err, "Unknown command: 'noargs_command'")
+
+    def test_custom_command_with_settings(self):
+        "default: django-admin can execute user commands if settings are provided as argument"
+        args = ['noargs_command', '--settings=test_project.settings']
+        out, err = self.run_django_admin(args)
+        self.assertNoOutput(err)
+        self.assertOutput(out, "EXECUTE: noargs_command")
+
+    def test_custom_command_with_environment(self):
+        "default: django-admin can execute user commands if settings are provided in environment"
+        args = ['noargs_command']
+        out, err = self.run_django_admin(args, 'test_project.settings')
+        self.assertNoOutput(err)
+        self.assertOutput(out, "EXECUTE: noargs_command")
+
+========================================================================================
+HIT 2: ManageDefaultSettings type in tests/admin_scripts/tests.py (lines 659-721)
+uri: file:///home/luzh22/og-enhance/20260513/swe_lite_og_dev2_slimdown/source_tree/scripts/SWE/claude/RTC/output_logs/20260523-142320-swe-lite-rtc-r7300-p365424/workspace/tests/admin_scripts/tests.py#L659-L721:ManageDefaultSettings
+symbol: ManageDefaultSettings (type)
+lines: 659-721
+score: 0.460712861217648
+fused_scores: {'bm25': 0.23739329087501201, 'ctags': 1.0, 'embedding': 0.22525452999754447, 'graph': 1.0}
+----------------------------------------------------------------------------------------
+# tests/admin_scripts/tests.py (lines 659-721)
+
+class ManageDefaultSettings(AdminScriptTestCase):
+    """A series of tests for manage.py when using a settings.py file that
+    contains the test application.
+    """
+    def setUp(self):
+        super().setUp()
+        self.write_settings('settings.py')
+
+    def test_builtin_command(self):
+        "default: manage.py builtin commands succeed when default settings are appropriate"
+        args = ['check', 'admin_scripts']
+        out, err = self.run_manage(args)
+        self.assertNoOutput(err)
+        self.assertOutput(out, SYSTEM_CHECK_MSG)
+
+    def test_builtin_with_settings(self):
+        "default: manage.py builtin commands succeed if settings are provided as argument"
+        args = ['check', '--settings=test_project.settings', 'admin_scripts']
+        out, err = self.run_manage(args)
+        self.assertNoOutput(err)
+        self.assertOutput(out, SYSTEM_CHECK_MSG)
+
+    def test_builtin_with_environment(self):
+        "default: manage.py builtin commands succeed if settings are provided in the environment"
+        args = ['check', 'admin_scripts']
+        out, err = self.run_manage(args, 'test_project.settings')
+        self.assertNoOutput(err)
+        self.assertOutput(out, SYSTEM_CHECK_MSG)
+
+    def test_builtin_with_bad_settings(self):
+        "default: manage.py builtin commands succeed if settings file (from argument) doesn't exist"
+        args = ['check', '--settings=bad_settings', 'admin_scripts']
+        out, err = self.run_manage(args)
+        self.assertNoOutput(out)
+        self.assertOutput(err, "No module named '?bad_settings'?", regex=True)
+
+    def test_builtin_with_bad_environment(self):
+        "default: manage.py builtin commands fail if settings file (from environment) doesn't exist"
+        args = ['check', 'admin_scripts']
+        out, err = self.run_manage(args, 'bad_settings')
+        self.assertNoOutput(out)
+        self.assertOutput(err, "No module named '?bad_settings'?", regex=True)
+
+    def test_custom_command(self):
+        "default: manage.py can execute user commands when default settings are appropriate"
+        args = ['noargs_command']
+        out, err = self.run_manage(args)
+        self.assertNoOutput(err)
+        self.assertOutput(out, "EXECUTE: noargs_command")
+
+    def test_custom_command_with_settings(self):
+        "default: manage.py can execute user commands when settings are provided as argument"
+        args = ['noargs_command', '--settings=test_project.settings']
+        out, err = self.run_manage(args)
+        self.assertNoOutput(err)
+        self.assertOutput(out, "EXECUTE: noargs_command")
+
+    def test_custom_command_with_environment(self):
+        "default: manage.py can execute user commands when settings are provided in environment"
+        args = ['noargs_command']
+        out, err = self.run_manage(args, 'test_project.settings')
+        self.assertNoOutput(err)
+        self.assertOutput(out, "EXECUTE: noargs_command")
+
+========================================================================================
+HIT 3: ManageFullPathDefaultSettings type in tests/admin_scripts/tests.py (lines 724-786)
+uri: file:///home/luzh22/og-enhance/20260513/swe_lite_og_dev2_slimdown/source_tree/scripts/SWE/claude/RTC/output_logs/20260523-142320-swe-lite-rtc-r7300-p365424/workspace/tests/admin_scripts/tests.py#L724-L786:ManageFullPathDefaultSettings
+symbol: ManageFullPathDefaultSettings (type)
+lines: 724-786
+score: 0.4343116923861422
+fused_scores: {'bm25': 0.08018102427579445, 'ctags': 1.0, 'embedding': 0.25392541403820784, 'graph': 1.0}
+----------------------------------------------------------------------------------------
+# tests/admin_scripts/tests.py (lines 724-786)
+
+class ManageFullPathDefaultSettings(AdminScriptTestCase):
+    """A series of tests for manage.py when using a settings.py file that
+    contains the test application specified using a full path.
+    """
+    def setUp(self):
+        super().setUp()
+        self.write_settings('settings.py', ['django.contrib.auth', 'django.contrib.contenttypes', 'admin_scripts'])
+
+    def test_builtin_command(self):
+        "fulldefault: manage.py builtin commands succeed when default settings are appropriate"
+        args = ['check', 'admin_scripts']
+        out, err = self.run_manage(args)
+        self.assertNoOutput(err)
+        self.assertOutput(out, SYSTEM_CHECK_MSG)
+
+    def test_builtin_with_settings(self):
+        "fulldefault: manage.py builtin commands succeed if settings are provided as argument"
+        args = ['check', '--settings=test_project.settings', 'admin_scripts']
+        out, err = self.run_manage(args)
+        self.assertNoOutput(err)
+        self.assertOutput(out, SYSTEM_CHECK_MSG)
+
+    def test_builtin_with_environment(self):
+        "fulldefault: manage.py builtin commands succeed if settings are provided in the environment"
+        args = ['check', 'admin_scripts']
+        out, err = self.run_manage(args, 'test_project.settings')
+        self.assertNoOutput(err)
+        self.assertOutput(out, SYSTEM_CHECK_MSG)
+
+    def test_builtin_with_bad_settings(self):
+        "fulldefault: manage.py builtin commands succeed if settings file (from argument) doesn't exist"
+        args = ['check', '--settings=bad_settings', 'admin_scripts']
+        out, err = self.run_manage(args)
+        self.assertNoOutput(out)
+        self.assertOutput(err, "No module named '?bad_settings'?", regex=True)
+
+    def test_builtin_with_bad_environment(self):
+        "fulldefault: manage.py builtin commands fail if settings file (from environment) doesn't exist"
+        args = ['check', 'admin_scripts']
+        out, err = self.run_manage(args, 'bad_settings')
+        self.assertNoOutput(out)
+        self.assertOutput(err, "No module named '?bad_settings'?", regex=True)
+
+    def test_custom_command(self):
+        "fulldefault: manage.py can execute user commands when default settings are appropriate"
+        args = ['noargs_command']
+        out, err = self.run_manage(args)
+        self.assertNoOutput(err)
+        self.assertOutput(out, "EXECUTE: noargs_command")
+
+    def test_custom_command_with_settings(self):
+        "fulldefault: manage.py can execute user commands when settings are provided as argument"
+        args = ['noargs_command', '--settings=test_project.settings']
+        out, err = self.run_manage(args)
+        self.assertNoOutput(err)
+        self.assertOutput(out, "EXECUTE: noargs_command")
+
+    def test_custom_command_with_environment(self):
+        "fulldefault: manage.py can execute user commands when settings are provided in environment"
+        args = ['noargs_command']
+        out, err = self.run_manage(args, 'test_project.settings')
+        self.assertNoOutput(err)
+        self.assertOutput(out, "EXECUTE: noargs_command")
+
+========================================================================================
+HIT 4: OverrideSettingsTests_1 type in tests/test_utils/tests.py (lines 1039-1103)
+uri: file:///home/luzh22/og-enhance/20260513/swe_lite_og_dev2_slimdown/source_tree/scripts/SWE/claude/RTC/output_logs/20260523-142320-swe-lite-rtc-r7300-p365424/workspace/tests/test_utils/tests.py#L1039-L1103:OverrideSettingsTests_1
+symbol: OverrideSettingsTests_1 (type)
+lines: 1039-1103
+score: 0.4340374984353021
+fused_scores: {'bm25': 0.9516336646397849, 'ctags': 0.43181818181818177, 'embedding': 0.29190301111695244, 'graph': 0.0}
+----------------------------------------------------------------------------------------
+# tests/test_utils/tests.py (lines 1039-1103)
+
+class OverrideSettingsTests(SimpleTestCase):
+
+    # #21518 -- If neither override_settings nor a setting_changed receiver
+    # clears the URL cache between tests, then one of test_first or
+    # test_second will fail.
+
+    @override_settings(ROOT_URLCONF=FirstUrls)
+    def test_urlconf_first(self):
+        reverse('first')
+
+    @override_settings(ROOT_URLCONF=SecondUrls)
+    def test_urlconf_second(self):
+        reverse('second')
+
+    def test_urlconf_cache(self):
+        with self.assertRaises(NoReverseMatch):
+            reverse('first')
+        with self.assertRaises(NoReverseMatch):
+            reverse('second')
+
+        with override_settings(ROOT_URLCONF=FirstUrls):
+            self.client.get(reverse('first'))
+            with self.assertRaises(NoReverseMatch):
+                reverse('second')
+
+            with override_settings(ROOT_URLCONF=SecondUrls):
+                with self.assertRaises(NoReverseMatch):
+                    reverse('first')
+                self.client.get(reverse('second'))
+
+            self.client.get(reverse('first'))
+            with self.assertRaises(NoReverseMatch):
+                reverse('second')
+
+        with self.assertRaises(NoReverseMatch):
+            reverse('first')
+        with self.assertRaises(NoReverseMatch):
+            reverse('second')
+
+    def test_override_media_root(self):
+        """
+        Overriding the MEDIA_ROOT setting should be reflected in the
+        base_location attribute of django.core.files.storage.default_storage.
+        """
+        self.assertEqual(default_storage.base_location, '')
+        with self.settings(MEDIA_ROOT='test_value'):
+            self.assertEqual(default_storage.base_location, 'test_value')
+
+    def test_override_media_url(self):
+        """
+        Overriding the MEDIA_URL setting should be reflected in the
+        base_url attribute of django.core.files.storage.default_storage.
+        """
+        self.assertEqual(default_storage.base_location, '')
+        with self.settings(MEDIA_URL='/test_value/'):
+            self.assertEqual(default_storage.base_url, '/test_value/')
+
+    def test_override_file_upload_permissions(self):
+        """
+        Overriding the FILE_UPLOAD_PERMISSIONS setting should be reflected in
+        the file_permissions_mode attribute of
+        django.core.files.storage.default_storage.
+        """
+        self.assertIsNone(default_storage.file_permissions_mode)
+        with self.settings(FILE_UPLOAD_PERMISSIONS=0o777):
+
+========================================================================================
+HIT 5: OverrideSettingsTests_2 type in tests/test_utils/tests.py (lines 1099-1154)
+uri: file:///home/luzh22/og-enhance/20260513/swe_lite_og_dev2_slimdown/source_tree/scripts/SWE/claude/RTC/output_logs/20260523-142320-swe-lite-rtc-r7300-p365424/workspace/tests/test_utils/tests.py#L1099-L1154:OverrideSettingsTests_2
+symbol: OverrideSettingsTests_2 (type)
+lines: 1099-1154
+score: 0.42697857427879
+fused_scores: {'bm25': 0.883622427108682, 'ctags': 0.43181818181818177, 'embedding': 0.31400053384198273, 'graph': 0.0}
+----------------------------------------------------------------------------------------
+# tests/test_utils/tests.py (lines 1099-1154)
+
+the file_permissions_mode attribute of
+        django.core.files.storage.default_storage.
+        """
+        self.assertIsNone(default_storage.file_permissions_mode)
+        with self.settings(FILE_UPLOAD_PERMISSIONS=0o777):
+            self.assertEqual(default_storage.file_permissions_mode, 0o777)
+
+    def test_override_file_upload_directory_permissions(self):
+        """
+        Overriding the FILE_UPLOAD_DIRECTORY_PERMISSIONS setting should be
+        reflected in the directory_permissions_mode attribute of
+        django.core.files.storage.default_storage.
+        """
+        self.assertIsNone(default_storage.directory_permissions_mode)
+        with self.settings(FILE_UPLOAD_DIRECTORY_PERMISSIONS=0o777):
+            self.assertEqual(default_storage.directory_permissions_mode, 0o777)
+
+    def test_override_database_routers(self):
+        """
+        Overriding DATABASE_ROUTERS should update the master router.
+        """
+        test_routers = [object()]
+        with self.settings(DATABASE_ROUTERS=test_routers):
+            self.assertEqual(router.routers, test_routers)
+
+    def test_override_static_url(self):
+        """
+        Overriding the STATIC_URL setting should be reflected in the
+        base_url attribute of
+        django.contrib.staticfiles.storage.staticfiles_storage.
+        """
+        with self.settings(STATIC_URL='/test/'):
+            self.assertEqual(staticfiles_storage.base_url, '/test/')
+
+    def test_override_static_root(self):
+        """
+        Overriding the STATIC_ROOT setting should be reflected in the
+        location attribute of
+        django.contrib.staticfiles.storage.staticfiles_storage.
+        """
+        with self.settings(STATIC_ROOT='/tmp/test'):
+            self.assertEqual(staticfiles_storage.location, os.path.abspath('/tmp/test'))
+
+    def test_override_staticfiles_storage(self):
+        """
+        Overriding the STATICFILES_STORAGE setting should be reflected in
+        the value of django.contrib.staticfiles.storage.staticfiles_storage.
+        """
+        new_class = 'ManifestStaticFilesStorage'
+        new_storage = 'django.contrib.staticfiles.storage.' + new_class
+        with self.settings(STATICFILES_STORAGE=new_storage):
+            self.assertEqual(staticfiles_storage.__class__.__name__, new_class)
+
+    def test_override_staticfiles_finders(self):
+        """
+        Overriding the STATICFILES_FINDERS setting should be reflected in

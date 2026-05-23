@@ -28,7 +28,7 @@ pip install -r requirements.txt
 ```bash
 export RTC_EMBEDDING_API_KEY="<your-key>"
 export RTC_EMBEDDING_BASE_URL="https://api.openai-proxy.org"
-export RTC_EMBEDDING_MODEL="text-embedding-3-large"
+export RTC_EMBEDDING_MODEL="text-embedding-3-small"
 ```
 
 然后以本地链接方式安装插件：

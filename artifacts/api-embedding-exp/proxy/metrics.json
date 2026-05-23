@@ -1,0 +1,60 @@
+{
+  "dataset": "/home/luzh22/og-enhance/20260513/swe_lite_og_dev2_slimdown/source_tree/artifacts/legacy-search-dataset/search_targets.jsonl",
+  "predictions": "source_tree/artifacts/api-embedding-exp/proxy/api_embedding_predictions.jsonl",
+  "experiment_scope": "fixed_api_embedding_model_formatting_variants",
+  "model": "text-embedding-3-large",
+  "backend": "proxy",
+  "dimensions": 512,
+  "usable_records": 101,
+  "candidate_limit": 80,
+  "max_snippets_per_record": 200,
+  "candidate_recall": 0.9307,
+  "avg_embedding_api_and_cache_sec": 0.079625,
+  "variants": [
+    {
+      "variant": "api_scope_query",
+      "top1": 0.3564,
+      "top3": 0.4752,
+      "top5": 0.5545,
+      "top1_count": 36,
+      "top3_count": 48,
+      "top5_count": 56
+    },
+    {
+      "variant": "api_structured_raw_query",
+      "top1": 0.2475,
+      "top3": 0.3762,
+      "top5": 0.505,
+      "top1_count": 25,
+      "top3_count": 38,
+      "top5_count": 51
+    },
+    {
+      "variant": "api_structured_identifier_query",
+      "top1": 0.2277,
+      "top3": 0.3564,
+      "top5": 0.4752,
+      "top1_count": 23,
+      "top3_count": 36,
+      "top5_count": 48
+    },
+    {
+      "variant": "api_identifier_summary",
+      "top1": 0.3267,
+      "top3": 0.4554,
+      "top5": 0.4554,
+      "top1_count": 33,
+      "top3_count": 46,
+      "top5_count": 46
+    },
+    {
+      "variant": "api_field_rrf",
+      "top1": 0.3267,
+      "top3": 0.4158,
+      "top5": 0.4554,
+      "top1_count": 33,
+      "top3_count": 42,
+      "top5_count": 46
+    }
+  ]
+}

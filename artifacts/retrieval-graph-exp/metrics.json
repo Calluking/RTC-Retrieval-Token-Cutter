@@ -1,0 +1,118 @@
+{
+  "dataset": "/home/luzh22/og-enhance/20260513/swe_lite_og_dev2_slimdown/source_tree/artifacts/legacy-search-dataset/search_targets.jsonl",
+  "source_predictions": "/home/luzh22/og-enhance/20260513/swe_lite_og_dev2_slimdown/source_tree/artifacts/retrieval-eval/predictions.jsonl",
+  "predictions": "/home/luzh22/og-enhance/20260513/swe_lite_og_dev2_slimdown/source_tree/artifacts/retrieval-graph-exp/graph_variant_union_predictions.jsonl",
+  "usable_records": 101,
+  "candidate_union_recall": 0.7327,
+  "experiment_scope": "rerank_existing_4_route_top5_union",
+  "variants": [
+    {
+      "variant": "graph_current_proxy",
+      "top1": 0.3267,
+      "top3": 0.495,
+      "top5": 0.5842,
+      "top1_count": 33,
+      "top3_count": 50,
+      "top5_count": 59
+    },
+    {
+      "variant": "hybrid_symbol_graph",
+      "top1": 0.3168,
+      "top3": 0.495,
+      "top5": 0.5842,
+      "top1_count": 32,
+      "top3_count": 50,
+      "top5_count": 59
+    },
+    {
+      "variant": "inheritance_expansion",
+      "top1": 0.2673,
+      "top3": 0.4554,
+      "top5": 0.5842,
+      "top1_count": 27,
+      "top3_count": 46,
+      "top5_count": 59
+    },
+    {
+      "variant": "personalized_pagerank",
+      "top1": 0.297,
+      "top3": 0.5248,
+      "top5": 0.5743,
+      "top1_count": 30,
+      "top3_count": 53,
+      "top5_count": 58
+    },
+    {
+      "variant": "import_expansion",
+      "top1": 0.3366,
+      "top3": 0.495,
+      "top5": 0.5743,
+      "top1_count": 34,
+      "top3_count": 50,
+      "top5_count": 58
+    },
+    {
+      "variant": "path_package_graph",
+      "top1": 0.3366,
+      "top3": 0.4851,
+      "top5": 0.5743,
+      "top1_count": 34,
+      "top3_count": 49,
+      "top5_count": 58
+    },
+    {
+      "variant": "graph_kernel_overlap",
+      "top1": 0.297,
+      "top3": 0.495,
+      "top5": 0.5644,
+      "top1_count": 30,
+      "top3_count": 50,
+      "top5_count": 57
+    },
+    {
+      "variant": "containment_expansion",
+      "top1": 0.3366,
+      "top3": 0.4752,
+      "top5": 0.5545,
+      "top1_count": 34,
+      "top3_count": 48,
+      "top5_count": 56
+    },
+    {
+      "variant": "spreading_activation",
+      "top1": 0.2871,
+      "top3": 0.4158,
+      "top5": 0.5248,
+      "top1_count": 29,
+      "top3_count": 42,
+      "top5_count": 53
+    },
+    {
+      "variant": "query_gated_bfs",
+      "top1": 0.2475,
+      "top3": 0.3861,
+      "top5": 0.4851,
+      "top1_count": 25,
+      "top3_count": 39,
+      "top5_count": 49
+    },
+    {
+      "variant": "callgraph_expansion",
+      "top1": 0.2178,
+      "top3": 0.3465,
+      "top5": 0.4851,
+      "top1_count": 22,
+      "top3_count": 35,
+      "top5_count": 49
+    },
+    {
+      "variant": "typed_weighted_bfs",
+      "top1": 0.2475,
+      "top3": 0.3762,
+      "top5": 0.4752,
+      "top1_count": 25,
+      "top3_count": 38,
+      "top5_count": 48
+    }
+  ]
+}

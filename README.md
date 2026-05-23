@@ -53,7 +53,7 @@ Create local `env.sh` from [env.sh.example](env.sh.example) before running Claud
 cp env.sh.example env.sh
 export RTC_EMBEDDING_API_KEY="<your-key>"
 export RTC_EMBEDDING_BASE_URL="https://api.openai-proxy.org"
-export RTC_EMBEDDING_MODEL="text-embedding-3-large"
+export RTC_EMBEDDING_MODEL="text-embedding-3-small"
 ```
 
 If you use the virtual environment above, you can leave `PY_BIN` empty. `setup_env.sh` will detect `.venv/bin/python`.

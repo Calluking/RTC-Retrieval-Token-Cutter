@@ -31,7 +31,7 @@ cd ..
 cp env.sh.example env.sh
 export RTC_EMBEDDING_API_KEY="<your-key>"
 export RTC_EMBEDDING_BASE_URL="https://api.openai-proxy.org"
-export RTC_EMBEDDING_MODEL="text-embedding-3-large"
+export RTC_EMBEDDING_MODEL="text-embedding-3-small"
 ```
 
 If your shell uses an HTTP(S) or SOCKS proxy, source the top-level `setup_env.sh`

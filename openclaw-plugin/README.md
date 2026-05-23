@@ -28,7 +28,7 @@ Keep secret embedding settings in your shell environment, for example in `~/.bas
 ```bash
 export RTC_EMBEDDING_API_KEY="<your-key>"
 export RTC_EMBEDDING_BASE_URL="https://api.openai-proxy.org"
-export RTC_EMBEDDING_MODEL="text-embedding-3-large"
+export RTC_EMBEDDING_MODEL="text-embedding-3-small"
 ```
 
 Then install the plugin as a linked local plugin:

@@ -65,6 +65,36 @@ def _effective_search_limit(requested_limit: int) -> int:
     return int(requested_limit)
 
 
+def _env_flag(name: str) -> bool:
+    return (os.environ.get(name) or "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _format_search_snippets(result: dict) -> str:
+    """Return only the L2 snippets needed for editing unless search debug is enabled."""
+    if _env_flag("RTC_SEARCH_DEBUG") or _env_flag("RTC_SEARCH_INCLUDE_DEBUG"):
+        return json.dumps(result, indent=2)
+
+    lines: list[str] = []
+    query = str(result.get("query") or "").strip()
+    if query:
+        lines.append(f"# search_code query: {query}")
+    hits = [hit for hit in (result.get("hits") or []) if isinstance(hit, dict)]
+    lines.append(f"# hit_count: {len(hits)}")
+
+    for index, hit in enumerate(hits, start=1):
+        excerpt = str(hit.get("content_excerpt") or "").strip()
+        if not excerpt:
+            excerpt = str(hit.get("abstract") or "").strip()
+        if not excerpt:
+            continue
+        if lines:
+            lines.append("")
+        lines.append(f"# hit {index}")
+        lines.append(excerpt)
+
+    return "\n".join(lines).rstrip() + "\n"
+
+
 @app.tool(
     description="""\
 Reserved no-op for explicit workspace indexing.
@@ -94,9 +124,10 @@ def index_codebase(
     description="""\
 Search indexed code memories using a natural language query.
 
-This intentionally follows the older indevelopment MCP style: return the raw
-backend hits, especially `content_excerpt` values with `# repo/path (lines start-end)`
-headers, instead of reshaping hits into best_edit/targeted_read objects.
+Returns only the top L2 code snippets by default. Each snippet keeps its
+`# repo/path (lines start-end)` header so it can be edited directly. Set
+`RTC_SEARCH_DEBUG=1` or `RTC_SEARCH_INCLUDE_DEBUG=1` to return the raw backend
+payload with bootstrap, scores, and graph/debug metadata.
 
 MCP requirement: before editing source/code files, call this tool at least
 once with a focused query. Treat this as the preferred replacement for broad
@@ -125,7 +156,7 @@ def search_code(
         }
     )
     result = post_json("/api/v1/call/code_semantic_search", body)
-    return json.dumps(result, indent=2)
+    return _format_search_snippets(result)
 
 
 @app.tool(

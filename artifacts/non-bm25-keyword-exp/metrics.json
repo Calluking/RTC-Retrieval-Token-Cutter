@@ -1,0 +1,71 @@
+{
+  "dataset": "/home/luzh22/og-enhance/20260513/swe_lite_og_dev2_slimdown/source_tree/artifacts/legacy-search-dataset/search_targets.jsonl",
+  "predictions": "/home/luzh22/og-enhance/20260513/swe_lite_og_dev2_slimdown/source_tree/artifacts/non-bm25-keyword-exp/non_bm25_keyword_predictions.jsonl",
+  "experiment_scope": "canonical_non_bm25_keyword_variants",
+  "usable_records": 101,
+  "candidate_limit": 80,
+  "max_snippets_per_record": 500,
+  "candidate_recall": 0.9307,
+  "variants": [
+    {
+      "variant": "bm25f_symbol_heavy_baseline",
+      "top1": 0.3366,
+      "top3": 0.505,
+      "top5": 0.6337,
+      "top1_count": 34,
+      "top3_count": 51,
+      "top5_count": 64,
+      "avg_score_time_sec": 0.064789
+    },
+    {
+      "variant": "dfr_pl2_fielded",
+      "top1": 0.2673,
+      "top3": 0.3861,
+      "top5": 0.5446,
+      "top1_count": 27,
+      "top3_count": 39,
+      "top5_count": 55,
+      "avg_score_time_sec": 0.144962
+    },
+    {
+      "variant": "lm_jelinek_mercer_fielded",
+      "top1": 0.3366,
+      "top3": 0.4653,
+      "top5": 0.5248,
+      "top1_count": 34,
+      "top3_count": 47,
+      "top5_count": 53,
+      "avg_score_time_sec": 0.154074
+    },
+    {
+      "variant": "lm_dirichlet_fielded",
+      "top1": 0.2475,
+      "top3": 0.4356,
+      "top5": 0.5149,
+      "top1_count": 25,
+      "top3_count": 44,
+      "top5_count": 52,
+      "avg_score_time_sec": 0.154456
+    },
+    {
+      "variant": "field_rrf_tfidf",
+      "top1": 0.1782,
+      "top3": 0.3762,
+      "top5": 0.505,
+      "top1_count": 18,
+      "top3_count": 38,
+      "top5_count": 51,
+      "avg_score_time_sec": 0.145605
+    },
+    {
+      "variant": "tfidf_fielded",
+      "top1": 0.3267,
+      "top3": 0.4059,
+      "top5": 0.4851,
+      "top1_count": 33,
+      "top3_count": 41,
+      "top5_count": 49,
+      "avg_score_time_sec": 0.15177
+    }
+  ]
+}

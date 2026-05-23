@@ -38,7 +38,7 @@ Create `env.sh` from the repository template:
 cp env.sh.example env.sh
 export RTC_EMBEDDING_API_KEY="<your-key>"
 export RTC_EMBEDDING_BASE_URL="https://api.openai-proxy.org"
-export RTC_EMBEDDING_MODEL="text-embedding-3-large"
+export RTC_EMBEDDING_MODEL="text-embedding-3-small"
 ```
 
 The default local SWE-bench environment derivation uses Conda because it adapts

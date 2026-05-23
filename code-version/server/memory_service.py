@@ -78,8 +78,9 @@ _CODE_QUERY_STOPWORDS = {
     "expected", "actual", "behavior", "possible", "file", "hints", "before", "after",
     "function", "method", "class", "module", "call", "calls", "using", "used",
 }
-_DEFAULT_CODE_SEARCH_CANDIDATE_MAX_FILES = 40
-_DEFAULT_CODE_SEARCH_EMBED_MAX_FILES = 8
+_DEFAULT_CODE_SEARCH_CANDIDATE_MAX_FILES = 80
+_DEFAULT_CODE_SEARCH_EMBED_MAX_FILES = 80
+_DEFAULT_CODE_SEARCH_MAX_SNIPPETS = 500
 
 
 def _bootstrap_max_files() -> int:
@@ -135,6 +136,15 @@ def _code_search_embed_max_files() -> int:
     return max(1, min(n, 100))
 
 
+def _code_search_max_snippets() -> int:
+    raw = os.environ.get("RTC_CODE_SEARCH_MAX_SNIPPETS", str(_DEFAULT_CODE_SEARCH_MAX_SNIPPETS))
+    try:
+        n = int(raw)
+    except ValueError:
+        n = _DEFAULT_CODE_SEARCH_MAX_SNIPPETS
+    return max(1, min(n, 5000))
+
+
 def _code_search_ingest_candidates_enabled() -> bool:
     raw = os.environ.get("RTC_CODE_SEARCH_INGEST_CANDIDATES", "")
     return raw.strip().lower() in {"1", "true", "yes", "on"}
@@ -170,6 +180,15 @@ def _tokenize_for_bm25(text: str) -> list[str]:
             continue
         out.append(lowered)
     return out
+
+
+def _split_code_identifier(text: str) -> list[str]:
+    parts: list[str] = []
+    for raw in re.split(r"(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])|[_\W]+", text or ""):
+        if not raw:
+            continue
+        parts.extend(_tokenize_for_bm25(raw))
+    return parts
 
 
 # ---------------------------------------------------------------------------
@@ -1504,6 +1523,38 @@ class MemoryService:
             )
         return snippets
 
+    def _cap_code_search_snippets(self, snippets: list[dict], *, query: str, max_snippets: int) -> list[dict]:
+        if max_snippets <= 0 or len(snippets) <= max_snippets:
+            return snippets
+        ctags_hits = self._ctags_rank_candidate_hits(snippets, query=query, limit=len(snippets))
+        bm25_hits = self._bm25_rank_candidate_hits(snippets, query=query, limit=len(snippets))
+        ctags_n = self._normalize_scores(ctags_hits)
+        bm25_n = self._normalize_scores(bm25_hits)
+        scored: list[tuple[float, int, dict]] = []
+        for idx, snippet in enumerate(snippets):
+            uri = str(snippet.get("snippet_uri") or "")
+            score = (0.65 * ctags_n.get(uri, 0.0)) + (0.35 * bm25_n.get(uri, 0.0))
+            scored.append((score, -int(snippet.get("start_line") or 0), snippet))
+        scored.sort(key=lambda item: (item[0], item[1]), reverse=True)
+        return [snippet for _, _, snippet in scored[:max_snippets]]
+
+    @staticmethod
+    def _code_embedding_query(
+        query: str,
+        *,
+        grep_terms: list[str] | None = None,
+        glob_patterns: list[str] | None = None,
+    ) -> str:
+        parts = [query.strip()]
+        scope_terms = []
+        for value in [*(grep_terms or []), *(glob_patterns or [])]:
+            for token in _split_code_identifier(str(value)):
+                if token and token not in scope_terms:
+                    scope_terms.append(token)
+        if scope_terms:
+            parts.append("scope: " + " ".join(scope_terms[:24]))
+        return "\n".join(part for part in parts if part)
+
     @staticmethod
     def _resolve_snippet_graph_relations(snippets: list[dict]) -> None:
         """Resolve graph relation names to concrete snippet URIs and locators."""
@@ -1685,34 +1736,52 @@ class MemoryService:
         query_terms = _tokenize_for_bm25(query)
         if not query_terms:
             return []
-        doc_tokens = [_tokenize_for_bm25(str(s.get("bm25_doc") or "")) for s in snippets]
-        if not any(doc_tokens):
+
+        fields = [
+            ("symbol", 4.5, 0.05, lambda s: str(s.get("symbol") or "")),
+            ("signature", 2.6, 0.20, lambda s: str(s.get("signature") or "")),
+            ("path", 1.2, 0.20, lambda s: str(s.get("rel") or "")),
+            ("body", 0.45, 0.65, lambda s: str(s.get("excerpt") or "")),
+        ]
+        field_tokens: dict[str, list[list[str]]] = {}
+        for name, _, _, getter in fields:
+            field_tokens[name] = [_tokenize_for_bm25(getter(snippet)) for snippet in snippets]
+        if not any(any(docs) for docs in field_tokens.values()):
             return []
 
-        n_docs = len(doc_tokens)
-        avgdl = sum(len(toks) for toks in doc_tokens) / max(1, n_docs)
+        n_docs = len(snippets)
         k1 = 1.5
-        b = 0.75
-        dfs: Counter[str] = Counter()
-        for toks in doc_tokens:
-            for term in set(toks):
-                dfs[term] += 1
+        field_avgdl = {
+            name: sum(len(toks) for toks in docs) / max(1, n_docs)
+            for name, docs in field_tokens.items()
+        }
+        field_dfs: dict[str, Counter[str]] = {}
+        for name, docs in field_tokens.items():
+            dfs: Counter[str] = Counter()
+            for toks in docs:
+                for term in set(toks):
+                    dfs[term] += 1
+            field_dfs[name] = dfs
 
         scored: list[tuple[float, dict]] = []
-        for snippet, toks in zip(snippets, doc_tokens):
-            tf = Counter(toks)
-            dl = len(toks)
+        for idx, snippet in enumerate(snippets):
             score = 0.0
-            for term in query_terms:
-                df = dfs.get(term, 0)
-                if df <= 0:
+            for name, weight, b, _ in fields:
+                toks = field_tokens[name][idx]
+                if not toks:
                     continue
-                idf = math.log(1.0 + (n_docs - df + 0.5) / (df + 0.5))
-                freq = tf.get(term, 0)
-                if freq <= 0:
-                    continue
-                denom = freq + k1 * (1.0 - b + b * (dl / max(1e-9, avgdl)))
-                score += idf * ((freq * (k1 + 1.0)) / max(1e-9, denom))
+                tf = Counter(toks)
+                dl = len(toks)
+                avgdl = field_avgdl[name]
+                dfs = field_dfs[name]
+                for term in query_terms:
+                    df = dfs.get(term, 0)
+                    freq = tf.get(term, 0)
+                    if df <= 0 or freq <= 0:
+                        continue
+                    idf = math.log(1.0 + (n_docs - df + 0.5) / (df + 0.5))
+                    denom = freq + k1 * (1.0 - b + b * (dl / max(1e-9, avgdl)))
+                    score += weight * idf * ((freq * (k1 + 1.0)) / max(1e-9, denom))
             if score <= 0.0:
                 continue
             scored.append((score, snippet))
@@ -1824,7 +1893,7 @@ class MemoryService:
         query: str,
         limit: int,
     ) -> list[dict]:
-        """CGM-style route over L1 graph properties: lexical anchors + BFS expansion."""
+        """L1 graph-memory route: anchor rank + 1-hop relation walk + small PageRank, fused by RRF."""
         if not snippets or limit <= 0:
             return []
         query_terms = [t.lower() for t in _extract_code_query_terms(query)]
@@ -1929,61 +1998,97 @@ class MemoryService:
                 score += min(degree, 4) * 0.25
             return score, anchor_score, exact_symbol_anchor
 
-        direct_results = {
-            uri: direct_score(snippet)
-            for uri, snippet in snippets_by_uri.items()
-        }
-        direct_scores = {uri: result[0] for uri, result in direct_results.items()}
-        anchor_scores = {uri: result[1] for uri, result in direct_results.items()}
-        exact_symbol_anchors = {uri for uri, result in direct_results.items() if result[2]}
-        degree_by_uri = {
-            uri: len(out_edges.get(uri, set())) + len(in_edges.get(uri, set()))
-            for uri in snippets_by_uri
-        }
-        anchors = [
-            uri for uri, score in anchor_scores.items()
-            if score > 0.0 and (degree_by_uri.get(uri, 0) > 0 or uri in exact_symbol_anchors)
-        ]
-        if not anchors:
-            return []
-        anchors.sort(key=lambda uri: direct_scores.get(uri, 0.0), reverse=True)
-        anchors = anchors[:8]
+        def relation_neighbors(uri: str, reverse: bool = True) -> list[tuple[str, str, bool]]:
+            out = [(target_uri, "out", False) for target_uri in out_edges.get(uri, set())]
+            if reverse:
+                out.extend((source_uri, "in", True) for source_uri in in_edges.get(uri, set()))
+            return out
 
-        distances: dict[str, int] = {uri: 0 for uri in anchors}
-        frontier = set(anchors)
-        for dist in (1, 2):
-            next_frontier: set[str] = set()
-            for uri in frontier:
-                next_frontier.update(out_edges.get(uri, set()))
-                next_frontier.update(in_edges.get(uri, set()))
-            for uri in next_frontier:
-                if uri not in distances:
-                    distances[uri] = dist
-            frontier = {uri for uri in next_frontier if distances.get(uri) == dist}
-            if not frontier:
-                break
+        def anchor_text_scores() -> dict[str, float]:
+            scores: dict[str, float] = {}
+            for uri, snippet in snippets_by_uri.items():
+                direct, anchor, _ = direct_score(snippet)
+                relationish = direct - anchor
+                text_l = " ".join(
+                    [
+                        str(snippet.get("rel") or ""),
+                        str(snippet.get("symbol") or ""),
+                        str(snippet.get("signature") or ""),
+                        str(snippet.get("excerpt") or ""),
+                    ]
+                ).lower()
+                overlap = sum(1 for term in query_terms if term and term in text_l)
+                score = max(anchor, overlap * 0.75)
+                if relationish > 0:
+                    score = max(score, anchor + relationish * 0.25)
+                if score > 0:
+                    scores[uri] = score
+            return scores
+
+        def traverse(seeds: dict[str, float]) -> tuple[dict[str, float], dict[str, int]]:
+            weights = {"calls": 0.95, "extends": 0.9, "contains": 0.75, "out": 0.95, "in": 0.72}
+            scores = dict(seeds)
+            distances = {uri: 0 for uri in seeds}
+            frontier = dict(seeds)
+            for depth in (1,):
+                nxt: dict[str, float] = {}
+                for uri, seed_score in frontier.items():
+                    for neighbor_uri, rel_type, is_reverse in relation_neighbors(uri, reverse=True):
+                        rel_weight = weights.get(rel_type, 0.8)
+                        direction_weight = 0.72 if is_reverse else 1.0
+                        gain = seed_score * (0.7 ** depth) * rel_weight * direction_weight
+                        if gain <= 0:
+                            continue
+                        nxt[neighbor_uri] = max(nxt.get(neighbor_uri, 0.0), gain)
+                        scores[neighbor_uri] = max(scores.get(neighbor_uri, 0.0), gain)
+                        distances.setdefault(neighbor_uri, depth)
+                frontier = nxt
+                if not frontier:
+                    break
+            return scores, distances
+
+        def pagerank(seeds: dict[str, float]) -> dict[str, float]:
+            seeds_n = self._normalize_score_map(seeds)
+            if not seeds_n:
+                return {}
+            uris = list(snippets_by_uri)
+            scores = {uri: seeds_n.get(uri, 0.0) for uri in uris}
+            alpha = 0.35
+            for _ in range(14):
+                nxt = {uri: alpha * seeds_n.get(uri, 0.0) for uri in uris}
+                for uri, value in scores.items():
+                    edges = list(out_edges.get(uri, set()))
+                    if not edges:
+                        continue
+                    share = (1.0 - alpha) * value / max(1, len(edges))
+                    for target_uri in edges:
+                        nxt[target_uri] = nxt.get(target_uri, 0.0) + share
+                scores = nxt
+            return {uri: value for uri, value in scores.items() if value > 0}
+
+        def rrf_score_maps(score_maps: list[dict[str, float]]) -> dict[str, float]:
+            out: dict[str, float] = {}
+            for scores in score_maps:
+                ranked = sorted(scores.items(), key=lambda item: item[1], reverse=True)
+                for rank, (uri, _) in enumerate(ranked, start=1):
+                    out[uri] = out.get(uri, 0.0) + 1.0 / (60.0 + rank)
+            return out
+
+        anchor = anchor_text_scores()
+        if not anchor:
+            return []
+        walk, distances = traverse(anchor)
+        ppr = pagerank(anchor)
+        graph_scores = rrf_score_maps([anchor, walk, ppr])
 
         scored: list[tuple[float, dict]] = []
-        for uri, dist in distances.items():
+        for uri, score in graph_scores.items():
             snippet = snippets_by_uri.get(uri)
-            if not snippet:
+            if not snippet or score <= 0:
                 continue
+            dist = distances.get(uri, 0 if uri in anchor else 99)
             out_degree = len(out_edges.get(uri, set()))
             in_degree = len(in_edges.get(uri, set()))
-            degree = out_degree + in_degree
-            exact_symbol_anchor = uri in exact_symbol_anchors
-            if degree <= 0 and not exact_symbol_anchor:
-                continue
-            proximity = {0: 1.0, 1: 2.5, 2: 1.25}.get(dist, 0.0) if degree else 0.0
-            direct = direct_scores.get(uri, 0.0)
-            if degree:
-                score = direct + proximity + min(degree, 4) * 0.5
-            else:
-                score = min(direct, 2.0)
-            if dist > 0 and direct <= 0.0:
-                score -= 0.25
-            if score <= 0.0:
-                continue
 
             rel = str(snippet["rel"])
             symbol = str(snippet.get("symbol") or "").strip()
@@ -2034,6 +2139,18 @@ class MemoryService:
         return out
 
     @staticmethod
+    def _normalize_score_map(scores: dict[str, float]) -> dict[str, float]:
+        if not scores:
+            return {}
+        values = list(scores.values())
+        min_v = min(values)
+        max_v = max(values)
+        if max_v <= min_v:
+            return {uri: 1.0 for uri in scores}
+        span = max_v - min_v
+        return {uri: (float(score) - min_v) / span for uri, score in scores.items()}
+
+    @staticmethod
     def _raw_scores_by_uri(hits: list[dict]) -> dict[str, float]:
         return {
             str(h.get("uri") or ""): float(h.get("score") or 0.0)
@@ -2079,10 +2196,31 @@ class MemoryService:
         raw_bm25 = self._raw_scores_by_uri(bm25_score_hits)
         raw_ctags = self._raw_scores_by_uri(ctags_score_hits)
         raw_graph = self._raw_scores_by_uri(graph_score_hits)
-        w_embed = float(os.environ.get("RTC_CODE_FUSE_W_EMBED", "0.45"))
-        w_bm25 = float(os.environ.get("RTC_CODE_FUSE_W_BM25", "0.25"))
-        w_ctags = float(os.environ.get("RTC_CODE_FUSE_W_CTAGS", "0.15"))
-        w_graph = float(os.environ.get("RTC_CODE_FUSE_W_GRAPH", "0.15"))
+
+        fuse_mode = os.environ.get("RTC_CODE_FUSE_MODE", "weighted_rrf").strip().lower()
+        w_embed = float(os.environ.get("RTC_CODE_FUSE_W_EMBED", "0.33"))
+        w_bm25 = float(os.environ.get("RTC_CODE_FUSE_W_BM25", "0.17"))
+        w_ctags = float(os.environ.get("RTC_CODE_FUSE_W_CTAGS", "0.17"))
+        w_graph = float(os.environ.get("RTC_CODE_FUSE_W_GRAPH", "0.33"))
+        route_weights = {
+            "embedding": w_embed,
+            "bm25": w_bm25,
+            "ctags": w_ctags,
+            "graph": w_graph,
+        }
+        route_hit_lists = {
+            "embedding": embedding_hits,
+            "bm25": bm25_hits,
+            "ctags": ctags_hits,
+            "graph": graph_hits,
+        }
+        route_ranks: dict[str, dict[str, int]] = {}
+        for route, hits in route_hit_lists.items():
+            route_ranks[route] = {
+                str(hit.get("uri") or ""): rank
+                for rank, hit in enumerate(hits, start=1)
+                if hit.get("uri")
+            }
 
         fused: list[tuple[float, dict]] = []
         for uri, hit in candidates.items():
@@ -2090,21 +2228,30 @@ class MemoryService:
             s_bm25 = norm_bm25.get(uri, 0.0)
             s_ctags = norm_ctags.get(uri, 0.0)
             s_graph = norm_graph.get(uri, 0.0)
-            score = (
-                (w_embed * s_embed)
-                + (w_bm25 * s_bm25)
-                + (w_ctags * s_ctags)
-                + (w_graph * s_graph)
-            )
+            if fuse_mode in {"weighted_sum", "sum"}:
+                score = (
+                    (w_embed * s_embed)
+                    + (w_bm25 * s_bm25)
+                    + (w_ctags * s_ctags)
+                    + (w_graph * s_graph)
+                )
+                score_kind = "weighted_sum_embedding_raw_bm25_ctags_graph_normalized"
+            else:
+                score = 0.0
+                for route, ranks in route_ranks.items():
+                    rank = ranks.get(uri)
+                    if rank is not None:
+                        score += route_weights.get(route, 0.0) / (60.0 + rank)
+                score_kind = "weighted_rrf_embedding_bm25_ctags_graph_topk"
             item = dict(hit)
             item["score"] = float(score)
             item["retrieval_source"] = "hybrid"
-            item["score_kind"] = "weighted_sum_embedding_raw_bm25_ctags_graph_normalized"
-            item["score_weights"] = {
-                "embedding": w_embed,
-                "bm25": w_bm25,
-                "ctags": w_ctags,
-                "graph": w_graph,
+            item["score_kind"] = score_kind
+            item["score_weights"] = route_weights
+            item["route_ranks"] = {
+                route: ranks.get(uri)
+                for route, ranks in route_ranks.items()
+                if ranks.get(uri) is not None
             }
             item["raw_scores"] = {
                 "embedding": raw_embed.get(uri, 0.0),
@@ -2119,7 +2266,7 @@ class MemoryService:
                 "graph": norm_graph.get(uri, 0.0),
             }
             # Backward compatibility: older clients read fused_scores. These
-            # are now the component scores used by the weighted-sum formula.
+            # are now the component scores used by the final fusion formula.
             item["fused_scores"] = {
                 "embedding": s_embed,
                 "bm25": s_bm25,
@@ -3915,6 +4062,7 @@ class MemoryService:
         candidate_paths: list[str] = []
         candidate_limit = _code_search_candidate_max_files()
         embed_limit = min(candidate_limit, _code_search_embed_max_files())
+        max_snippets = _code_search_max_snippets()
         glob_patterns = self._parse_hint_list(params.get("glob_patterns") or params.get("globPatterns"))
         grep_terms = self._parse_hint_list(params.get("grep_terms") or params.get("grepTerms"))
         timings: dict[str, float] = {}
@@ -3950,6 +4098,7 @@ class MemoryService:
                 "ingested_count": 0,
                 "mode": "grep_glob_candidates",
                 "embed_candidate_limit": embed_limit,
+                "max_snippets": max_snippets,
                 "timings": timings,
             }
             try:
@@ -3958,6 +4107,8 @@ class MemoryService:
                 topn_each = 5
             topn_each = max(1, min(topn_each, 5))
             snippets = self._build_candidate_snippets(workspace_root, candidate_paths, ctx=ctx)
+            snippets = self._cap_code_search_snippets(snippets, query=query, max_snippets=max_snippets)
+            bootstrap["snippet_count"] = len(snippets)
             if _code_search_ingest_candidates_enabled():
                 t_ingest = time.perf_counter()
                 ingested = self._ingest_candidate_paths(
@@ -3977,7 +4128,7 @@ class MemoryService:
             embed_score_hits = self._embed_rank_candidate_hits(
                 workspace_root,
                 candidate_paths=candidate_paths,
-                query=query,
+                query=self._code_embedding_query(query, grep_terms=grep_terms, glob_patterns=glob_patterns),
                 limit=len(snippets),
                 snippets=snippets,
             )

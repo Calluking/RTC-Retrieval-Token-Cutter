@@ -1,0 +1,10 @@
+{
+  "runs": 39,
+  "records": 153,
+  "records_with_targets": 105,
+  "by_tool": {
+    "Grep": 10,
+    "shell_grep": 143
+  },
+  "output": "artifacts/legacy-search-dataset/search_targets.jsonl"
+}

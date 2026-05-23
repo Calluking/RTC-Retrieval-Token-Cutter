@@ -34,7 +34,7 @@ Keep embedding credentials in your shell environment, not in this repo:
 ```bash
 export RTC_EMBEDDING_API_KEY="<your-key>"
 export RTC_EMBEDDING_BASE_URL="https://api.openai-proxy.org"
-export RTC_EMBEDDING_MODEL="text-embedding-3-large"
+export RTC_EMBEDDING_MODEL="text-embedding-3-small"
 ```
 
 The runner does not require a preflight embedding probe by default. RTC search can still use its direct BM25/ctags fallback if an OpenAI-compatible endpoint does not expose `/v1/embeddings`. Set `RTC_EMBEDDING_PROBE_REQUIRED=1` to fail fast on embedding endpoint issues.
