@@ -67,13 +67,10 @@ def _effective_search_limit(requested_limit: int) -> int:
 
 @app.tool(
     description="""\
-Index a workspace directory so code-mode semantic search can use Retrieval Token Cutter vectors.
+Reserved no-op for explicit workspace indexing.
 
-`path` must be an absolute workspace root. This maps to
-`POST /api/v1/code_workspace_bootstrap`.
-
-Use this only when you need to explicitly warm/index a tree. Normal
-`search_code` calls perform candidate indexing automatically.
+`search_code` retrieves from local snippets by default, so this tool only
+reports the resolved workspace path.
 """,
 )
 def index_codebase(
@@ -84,7 +81,7 @@ def index_codebase(
         {
             "ok": True,
             "skipped": True,
-            "reason": "search_code performs candidate indexing automatically for SWE runs",
+            "reason": "search_code uses local snippets by default; explicit indexing is optional",
             "workspace_root": path,
             "force": force,
             "next_step": "Call search_code with a focused query.",

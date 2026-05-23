@@ -135,6 +135,11 @@ def _code_search_embed_max_files() -> int:
     return max(1, min(n, 100))
 
 
+def _code_search_ingest_candidates_enabled() -> bool:
+    raw = os.environ.get("RTC_CODE_SEARCH_INGEST_CANDIDATES", "")
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
 def _forced_code_search_limit() -> int | None:
     raw = (os.environ.get("RTC_SEARCH_FORCE_LIMIT") or os.environ.get("RTC_SEARCH_LIMIT") or "").strip()
     if not raw:
@@ -3952,17 +3957,22 @@ class MemoryService:
             except ValueError:
                 topn_each = 5
             topn_each = max(1, min(topn_each, 5))
-            t_ingest = time.perf_counter()
-            ingested = self._ingest_candidate_paths(
-                workspace_root,
-                params,
-                ctx,
-                candidate_paths=candidate_paths,
-            )
-            timings["candidate_ingest_sec"] = round(time.perf_counter() - t_ingest, 3)
-            bootstrap["ingested_paths"] = ingested
-            bootstrap["ingested_count"] = len(ingested)
             snippets = self._build_candidate_snippets(workspace_root, candidate_paths, ctx=ctx)
+            if _code_search_ingest_candidates_enabled():
+                t_ingest = time.perf_counter()
+                ingested = self._ingest_candidate_paths(
+                    workspace_root,
+                    params,
+                    ctx,
+                    candidate_paths=candidate_paths,
+                )
+                timings["candidate_ingest_sec"] = round(time.perf_counter() - t_ingest, 3)
+                bootstrap["ingested_paths"] = ingested
+                bootstrap["ingested_count"] = len(ingested)
+                bootstrap["candidate_ingest_enabled"] = True
+            else:
+                timings["candidate_ingest_sec"] = 0.0
+                bootstrap["candidate_ingest_enabled"] = False
             t2 = time.perf_counter()
             embed_score_hits = self._embed_rank_candidate_hits(
                 workspace_root,
