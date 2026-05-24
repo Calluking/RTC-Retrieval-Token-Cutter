@@ -1,0 +1,162 @@
+--- /home/luzh22/og-enhance/20260513/swe_lite_og_dev2_slimdown/source_tree/artifacts/prompt-comparison/previous_og_memory_prompt_20260518.txt	2026-05-24 10:30:23.358963393 +0800
++++ /home/luzh22/og-enhance/20260513/swe_lite_og_dev2_slimdown/source_tree/artifacts/prompt-comparison/current_rtc_prompt_20260524.txt	2026-05-24 10:30:23.294964129 +0800
+@@ -1,50 +1,63 @@
+ You are working on a real open-source project as in the SWE-bench Lite benchmark.
+ 
+ Repository: django/django
+-Checkout: parent commit (state before the fix) is bceadd2788dc2dad53eba0caae172bd8522fd483. The codebase is already checked out in this directory.
++Checkout: parent commit (state before the fix) is e7fd69d051eaa67cb17f172a39b57253e9cb831a. The codebase is already checked out in this directory.
+ Do not look up or apply the original solution PR or patch from the web.
+ 
+ Official issue text (`problem_statement`):
+ 
+ ---
+-Allow FilePathField path to accept a callable.
++Set default FILE_UPLOAD_PERMISSION to 0o644.
+ Description
+ 	
+-I have a special case where I want to create a model containing the path to some local files on the server/dev machine. Seeing as the place where these files are stored is different on different machines I have the following:
+-import os
+-from django.conf import settings
+-from django.db import models
+-class LocalFiles(models.Model):
+-	name = models.CharField(max_length=255)
+-	file = models.FilePathField(path=os.path.join(settings.LOCAL_FILE_DIR, 'example_dir'))
+-Now when running manage.py makemigrations it will resolve the path based on the machine it is being run on. Eg: /home/<username>/server_files/example_dir
+-I had to manually change the migration to include the os.path.join() part to not break this when running the migration on production/other machine.
++Hello,
++As far as I can see, the ​File Uploads documentation page does not mention any permission issues.
++What I would like to see is a warning that in absence of explicitly configured FILE_UPLOAD_PERMISSIONS, the permissions for a file uploaded to FileSystemStorage might not be consistent depending on whether a MemoryUploadedFile or a TemporaryUploadedFile was used for temporary storage of the uploaded data (which, with the default FILE_UPLOAD_HANDLERS, in turn depends on the uploaded data size).
++The tempfile.NamedTemporaryFile + os.rename sequence causes the resulting file permissions to be 0o0600 on some systems (I experience it here on CentOS 7.4.1708 and Python 3.6.5). In all probability, the implementation of Python's built-in tempfile module explicitly sets such permissions for temporary files due to security considerations.
++I found mentions of this issue ​on GitHub, but did not manage to find any existing bug report in Django's bug tracker.
+ ---
+ 
+ Optional prior discussion (`hints_text`):
+ ---
+-So, to clarify, what exactly is the bug/feature proposal/issue here? The way I see it, you're supposed to use os.path.join() and LOCAL_FILE_DIR to define a relative path. It's sort of like how we use BASE_DIR to define relative paths in a lot of other places. Could you please clarify a bit more as to what the issue is so as to make it easier to test and patch?
+-Replying to Hemanth V. Alluri: So, to clarify, what exactly is the bug/feature proposal/issue here? The way I see it, you're supposed to use os.path.join() and LOCAL_FILE_DIR to define a relative path. It's sort of like how we use BASE_DIR to define relative paths in a lot of other places. Could you please clarify a bit more as to what the issue is so as to make it easier to test and patch? LOCAL_FILE_DIR doesn't have to be the same on another machine, and in this case it isn't the same on the production server. So the os.path.join() will generate a different path on my local machine compared to the server. When i ran ./manage.py makemigrations the Migration had the path resolved "hardcoded" to my local path, which will not work when applying that path on the production server. This will also happen when using the BASE_DIR setting as the path of your FilePathField, seeing as that's based on the location of your project folder, which will almost always be on a different location. My suggestion would be to let makemigrations not resolve the path and instead keep the os.path.join(), which I have now done manually. More importantly would be to retain the LOCAL_FILE_DIR setting in the migration.
+-Replying to Sebastiaan Arendsen: Replying to Hemanth V. Alluri: So, to clarify, what exactly is the bug/feature proposal/issue here? The way I see it, you're supposed to use os.path.join() and LOCAL_FILE_DIR to define a relative path. It's sort of like how we use BASE_DIR to define relative paths in a lot of other places. Could you please clarify a bit more as to what the issue is so as to make it easier to test and patch? LOCAL_FILE_DIR doesn't have to be the same on another machine, and in this case it isn't the same on the production server. So the os.path.join() will generate a different path on my local machine compared to the server. When i ran ./manage.py makemigrations the Migration had the path resolved "hardcoded" to my local path, which will not work when applying that path on the production server. This will also happen when using the BASE_DIR setting as the path of your FilePathField, seeing as that's based on the location of your project folder, which will almost always be on a different location. My suggestion would be to let makemigrations not resolve the path and instead keep the os.path.join(), which I have now done manually. More importantly would be to retain the LOCAL_FILE_DIR setting in the migration. Please look at this ticket: https://code.djangoproject.com/ticket/6896 I think that something like what sandychapman suggested about an extra flag would be cool if the design decision was approved and if there were no restrictions in the implementation for such a change to be made. But that's up to the developers who have had more experience with the project to decide, not me.
+-This seems a reasonable use-case: allow FilePathField to vary path by environment. The trouble with os.path.join(...) is that it will always be interpreted at import time, when the class definition is loaded. (The (...) say, ...and call this....) The way to defer that would be to all path to accept a callable, similarly to how FileField's upload_to takes a callable. It should be enough to evaluate the callable in FilePathField.__init__(). Experimenting with generating a migration looks good. (The operation gives path the fully qualified import path of the specified callable, just as with upload_to.) I'm going to tentatively mark this as Easy Pickings: it should be simple enough.
+-Replying to Nicolas Noé: Hi Nicolas, Are you still working on this ticket?
+-Sorry, I forgot about it. I'll try to solve this real soon (or release the ticket if I can't find time for it).
+-​PR
+-Can I work on this ticket ?
+-Sure, sorry for blocking the ticket while I was too busy...
+-I think that Nicolas Noe's solution, ​PR, was correct. The model field can accept a callable as it is currently implemented. If you pass it a callable for the path argument it will correctly use that fully qualified function import path in the migration. The problem is when you go to actually instantiate a FilePathField instance, the FilePathField form does some type checking and gives you one of these TypeError: scandir: path should be string, bytes, os.PathLike or None, not function This can be avoided by evaluating the path function first thing in the field form __init__ function, as in the pull request. Then everything seems to work fine.
+-Hi, If I only change self.path in forms/fields.py, right after __init__ I get this error: File "/home/hpfn/Documentos/Programacao/python/testes/.venv/lib/python3.6/site-packages/django/forms/fields.py", line 1106, in __init__ self.choices.append((f, f.replace(path, "", 1))) TypeError: replace() argument 1 must be str, not function The 'path' param is used a few lines after. There is one more time. Line 1106 can be wrong. If I put in models/fields/__init__.py - after super(): if callable(self.path): self.path = self.path() I can run 'python manage.py runserver'
+-It can be: if callable(path): path = path() at the beginning of forms/fields.py
+-​PR
+-All comments in the original PR (​https://github.com/django/django/pull/10299/commits/7ddb83ca7ed5b2a586e9d4c9e0a79d60b27c26b6) seems to be resolved in the latter one (​https://github.com/django/django/pull/10924/commits/9c3b2c85e46efcf1c916e4b76045d834f16050e3).
+-Any hope of this featuring coming through. Django keep bouncing between migrations due to different paths to models.FilePathField
++I think you're talking about ef70af77ec53160d5ffa060c1bdf5ed93322d84f (#28540). I guess the question is whether or not that documentation should be duplicated elsewhere.
++Thank you Tim, this is precisely what I was looking for! I can only see one issue with the current docs (if you excuse me for bothering you with such minor details). ​The documentation for the FILE_UPLOAD_PERMISSIONS setting reads: If this isn’t given or is None, you’ll get operating-system dependent behavior. On most platforms, temporary files will have a mode of 0o600, and files saved from memory will be saved using the system’s standard umask. As I would understand this text, only temporary files get a mode of 0o600. I would then ask myself: "Why should I care about temporary files, they should be gone anyway after the file is uploaded?" and skip setting FILE_UPLOAD_PERMISSIONS. What is important but is not properly conveyed to the user is that not only temporary files themselves, but also the actual files which end up in the media folder get permissions of 0o600. Currently a developer can only discover this either by careful reading of the Deployment checklist page (manage.py check --deploy does not seem to check FILE_UPLOAD_PERMISSIONS) or by hitting the inconsistent permissions accidentally (like I did). I propose to unify the docs for FILE_UPLOAD_PERMISSIONS on the Settings page and the Deployment checklist page like this: ​https://gist.github.com/earshinov/0340f741189a14d4fd10e3e902203ad6/revisions#diff-14151589d5408f8b64b7e0e580770f0e Pros: It makes more clear that one gets different permissions for the *uploaded* files. It makes the docs more unified and thus easier to synchronously change in the future if/when required. I recognize that my edits might seem too minor and insignificant to be worth the hassle of editing the docs, committing, re-publishing them etc., but still I hope you will find them useful enough to be integrated into the official docs.
++Now that I think about, maybe Django could provide # <Commentary about inconsistent permissions when this setting is omitted> FILE_UPLOAD_PERMISSINS=0o600 in the ​default project settings so that developers don't miss it? 600 seems a reasonable default, particularly because people would get 600 anyway (at least on some operating systems) when the TemporaryFileUploadHandler is engaged.
++Since this has come up again, I've suggested on django-developers (​https://groups.google.com/d/topic/django-developers/h9XbQAPv5-I/discussion) that we adjust the FILE_UPLOAD_PERMISSION default to 0o644 (This was the conclusion I eventually came to from the discussion on #28540.) Lets see what people say there.
++Thus far, no great objections on the mailing list to adjusting the FILE_UPLOAD_PERMISSION default. Thus I'm going to rename this and Accept on that basis. A PR would need to: Adjust the default. Add a Breaking Change note to releases/2.2.txt (on the assumption we can get it in for then.) — This should include a set to None to restore previous behaviour' type comment. Adjust the references in the settings docs and deployment checklist. Make sure any other references are adjusted.
++Replying to Carlton Gibson: Thus far, no great objections on the mailing list to adjusting the FILE_UPLOAD_PERMISSION default. Thus I'm going to rename this and Accept on that basis. Thank you! Hopefully, this change will prevent confusion and unpleasant surprises for Django users in the future.
++Hello everyone, I would like to work on this. But before that there are few important questions: There is a related setting called FILE_UPLOAD_DIRECTORY_PERMISSIONS. Its document says that This value mirrors the functionality and caveats of the FILE_UPLOAD_PERMISSIONS setting. Shall we also change its default from None to 0o644(Please suggest if something different should be provided for directories) and update its document as well? Since 2.2 pre-release branch is now in feature freeze state, Shall we move the change to 3.0 version? On a side note, some tests must be refactored for new values for both of these settings. I think that's alright.
++That note is referring to that non-leaf directories are created using the process umask. (See ​`makedirs()` docs.) This is similar to FILE_UPLOAD_PERMISSIONS, when not using the temporary file upload handler. The underlying issue here is the inconsistency in file permissions, depending on the file size, when using the default settings that Django provides. There is no such inconsistency with directory permissions. As such changes should not be needed to FILE_UPLOAD_DIRECTORY_PERMISSIONS. (Any issues there would need to be addressed under a separate ticket.)
++Replying to Carlton Gibson: I see and understand the issue better now. Thanks for the clarification. I'll make the changes as you have suggested in your previous comment. Only question remaining is about introducing this change in 3.0 version. Shall we move it to 3.0 release?
++Shall we move it to 3.0 release? Yes please.
+ ---
+ 
++Fix the issue described above. Follow the Retrieval Token Cutter MCP
++search/edit policy and final-answer requirements included in this prompt.
++
++Important SWE-bench rule:
++- Do not edit benchmark tests, test files, or test fixtures.
++- Make the minimal production source-code change needed to satisfy the issue.
++- You may run existing tests to reproduce and verify, but the final patch should
++  be source-only unless the issue explicitly asks for test changes.
++- If the issue text mentions behavior that was already added for a related code
++  path, search for that related behavior and keep the public exception semantics
++  consistent. Do not use Python `assert` for runtime user-input validation.
++- For Flask blueprint dot-name tasks, validate both sides of the issue text:
++  dotted blueprint names must raise `ValueError`, and the existing dotted
++  endpoint / view-function-name checks must raise `ValueError` too. A patch
++  that leaves those endpoint checks as `AssertionError` is incomplete and will
++  fail validation; do not preserve that assertion behavior.
++
++## Workspace Paths
++- Claude is launched from the SWE task checkout: `/home/luzh22/og-enhance/20260513/swe_lite_og_dev2_slimdown/source_tree/scripts/SWE/claude/RTC/output_logs/20260524-prompt-injection-check-2/20260524-102135-swe-lite-rtc-r120-p13898/workspace`.
++- Retrieval Token Cutter search should use the SWE task checkout: `/home/luzh22/og-enhance/20260513/swe_lite_og_dev2_slimdown/source_tree/scripts/SWE/claude/RTC/output_logs/20260524-prompt-injection-check-2/20260524-102135-swe-lite-rtc-r120-p13898/workspace`.
++- Edits for this SWE task should be made in the task checkout: `/home/luzh22/og-enhance/20260513/swe_lite_og_dev2_slimdown/source_tree/scripts/SWE/claude/RTC/output_logs/20260524-prompt-injection-check-2/20260524-102135-swe-lite-rtc-r120-p13898/workspace`.
++
+ Task:
+ 1. Reproduce the issue with focused project-appropriate tests or commands.
+-2. Use `mcp__og-memory__search_code` before broad file reads.
++2. Use `mcp__plugin_retrieval-token-cutter_retrieval-token-cutter__search_code` before broad file reads.
+ 3. Use the failing behavior and semantic search results to locate the best matching implementation site.
+-4. Fix the bug using `mcp__og-memory__edit_file` rather than Claude's built-in `Edit` tool.
++4. Fix the bug using `mcp__plugin_retrieval-token-cutter_retrieval-token-cutter__edit_file` rather than Claude's built-in `Edit` tool.
+ 5. Re-run verification and ensure the relevant tests pass.
+ 
+ Final answer must include:
+@@ -53,42 +66,40 @@
+ - verification command/output
+ 
+ ## MCP requirement
+-Before you edit any source/code file, call the og-memory MCP tool search_code at least once.
++Before you edit any source/code file, call the retrieval-token-cutter MCP tool search_code at least once.
+ Use path=$WORK_DIR and query terms using how you would call 'grep' tool.
+ Compare multiple top L2 chunk hits, then patch only the best-matching files.
+ Do not use Claude's built-in `Edit` tool for this task.
+-Treat `mcp__og-memory__edit_file` as your edit tool.
++Treat `mcp__plugin_retrieval-token-cutter_retrieval-token-cutter__edit_file` as your edit tool.
+ 
+ ## MCP efficiency policy (turn/token reduction)
+-- Treat og-memory `search_code` as a replacement for broad `grep` and exploratory `read`.
++- Treat retrieval-token-cutter `search_code` as a replacement for broad `grep` and exploratory `read`.
+ - Minimize extra search loops: prefer 1-2 high-quality `search_code` calls with focused symbol-level queries.
+ - If returned snippets already include the target file and useful line context, act directly:
+-  - edit the code immediately with `mcp__og-memory__edit_file`, or
++  - edit the code immediately with `mcp__plugin_retrieval-token-cutter_retrieval-token-cutter__edit_file`, or
+   - run the next concrete action (patch/test) without additional broad reads.
+ - Avoid reading many unrelated files after a good hit; keep turns and token usage low.
+ - Only perform extra reads when required to verify safety or dependencies for the exact patch.
+ - Once the code is retrieved via `search_code`, skip the built-in 'Read'/'Edit' path and proceed directly to analyzing and editing with MCP tools.
+ 
+-
+-## MCP search result policy
+-- The oG-Memory MCP server enforces the number of returned search results for this run.
+-- Call `mcp__og-memory__search_code` with focused `path` and `query` values; you do not need to pass a `limit`.
+-
+-## Local SWE-bench Environment
+-- Use `/home/luzh22/og-enhance/20260511/oG-Memory-k1_to_k5/scripts_code_mcp/output_logs/20260518-154230-swe-lite-og-r32-p101258/workspace/RUN_IN_SWE_LOCAL_ENV.sh` for reproduction and verification commands.
+-- That helper activates a locally recreated env derived from the official SWE-bench `TestSpec`.
+-- Prefer:
+-  - `./RUN_IN_SWE_LOCAL_ENV.sh pytest -q <target>`
+-  - `./RUN_IN_SWE_LOCAL_ENV.sh python -m pytest -q <target>`
+-  - `/home/luzh22/og-enhance/20260511/oG-Memory-k1_to_k5/scripts_code_mcp/.cache/swebench_envs/django__django__3.0__r32/bin/python -m pytest -q <target>`
+-- For inline Python snippets, prefer:
+-  - `./RUN_IN_SWE_LOCAL_ENV.sh --stdin-python <<'PY'`
+-  - `...`
+-  - `PY`
+-- If editable-install state needs refreshing after a structural change, use:
+-  - `./RUN_IN_SWE_LOCAL_ENV.sh --reinstall pytest -q <target>`
+-- Do not use raw `python` or raw `pytest` for task verification; those may hit the host interpreter instead of the recreated SWE env.
+-- Avoid shared temp files like `/tmp/build.log`; keep per-run logs under the workspace or `logs/`.
+-- Local env prefix: `/home/luzh22/og-enhance/20260511/oG-Memory-k1_to_k5/scripts_code_mcp/.cache/swebench_envs/django__django__3.0__r32`
+-- Local env create log: `/home/luzh22/og-enhance/20260511/oG-Memory-k1_to_k5/scripts_code_mcp/output_logs/20260518-154230-swe-lite-og-r32-p101258/logs/swe-local-env-create.log`
+-- Local env command log: `/home/luzh22/og-enhance/20260511/oG-Memory-k1_to_k5/scripts_code_mcp/output_logs/20260518-154230-swe-lite-og-r32-p101258/logs/swe-local-env-commands.log`
++## MCP search limit policy
++- The Retrieval Token Cutter MCP server enforces the number of returned search results for this run.
++- Call `mcp__plugin_retrieval-token-cutter_retrieval-token-cutter__search_code` with focused `path` and `query` values; you do not need to pass a `limit`.
++
++	## Local SWE-bench Environment
++	- This workspace has a task-specific environment derived from the official SWE-bench `TestSpec`.
++	- Use `/home/luzh22/og-enhance/20260513/swe_lite_og_dev2_slimdown/source_tree/scripts/SWE/claude/RTC/output_logs/20260524-prompt-injection-check-2/20260524-102135-swe-lite-rtc-r120-p13898/workspace/RUN_IN_SWE_LOCAL_ENV.sh` for every reproduction and verification command.
++	- Do not use raw `python`, raw `python -m pytest`, or raw `pytest`; those may hit the host environment.
++	- Use:
++	  - `./RUN_IN_SWE_LOCAL_ENV.sh pytest -q <target>`
++	  - `./RUN_IN_SWE_LOCAL_ENV.sh python -m pytest -q <target>`
++	- For inline Python snippets, prefer:
++	  - `./RUN_IN_SWE_LOCAL_ENV.sh --stdin-python <<'PY'`
++	  - `...`
++	  - `PY`
++	- If editable-install state needs refreshing after a structural change, use:
++	  - `./RUN_IN_SWE_LOCAL_ENV.sh --reinstall pytest -q <target>`
++	- Avoid shared temp files like `/tmp/build.log`; keep per-run logs under the workspace or `logs/`.
++	- Local env prefix: `/home/luzh22/og-enhance/20260513/swe_lite_og_dev2_slimdown/source_tree/scripts/SWE/claude/RTC/.cache/swebench_envs/django__django__3.0__r120`
++	- Local env create log: `/home/luzh22/og-enhance/20260513/swe_lite_og_dev2_slimdown/source_tree/scripts/SWE/claude/RTC/output_logs/20260524-prompt-injection-check-2/20260524-102135-swe-lite-rtc-r120-p13898/logs/swe-local-env-create.log`
++- Local env command log: `/home/luzh22/og-enhance/20260513/swe_lite_og_dev2_slimdown/source_tree/scripts/SWE/claude/RTC/output_logs/20260524-prompt-injection-check-2/20260524-102135-swe-lite-rtc-r120-p13898/logs/swe-local-env-commands.log`

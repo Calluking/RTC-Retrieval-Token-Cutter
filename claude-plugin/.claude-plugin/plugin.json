@@ -6,6 +6,5 @@
     "name": "Retrieval Token Cutter contributors"
   },
   "keywords": ["memory", "mcp", "code-search"],
-  "skills": "./skills/",
   "mcpServers": "./.mcp.json"
 }

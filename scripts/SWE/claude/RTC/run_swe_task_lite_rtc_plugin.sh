@@ -164,8 +164,8 @@ Optional prior discussion (`hints_text`):
 ---
 """
 prompt += """
-Fix the issue described above. The Retrieval Token Cutter Claude plugin supplies the MCP
-search/edit policy and final-answer requirements for this coding task.
+Fix the issue described above. Follow the Retrieval Token Cutter MCP
+search/edit policy and final-answer requirements included in this prompt.
 
 Important SWE-bench rule:
 - Do not edit benchmark tests, test files, or test fixtures.
@@ -255,6 +255,14 @@ cat >>"$WORK_DIR/TASK.md" <<EOF2
 - Edits for this SWE task should be made in the task checkout: \`$WORK_DIR\`.
 EOF2
 
+CODE_POLICY_PROMPT="$CLAUDE_PLUGIN_DIR/prompts/code_policy_injection.txt"
+if [ "${RTC_APPEND_CODE_POLICY_TO_TASK:-1}" = "1" ] && [ -f "$CODE_POLICY_PROMPT" ]; then
+  {
+    printf '\n'
+    cat "$CODE_POLICY_PROMPT"
+  } >> "$WORK_DIR/TASK.md"
+fi
+
 CLAUDE_LOG="$LOGS_DIR/claude-code-debug.log"
 CLAUDE_STDOUT="$LOGS_DIR/claude-stdout.log"
 
@@ -340,8 +348,27 @@ export RTC_START_LOCAL_EMBED_SERVER="${RTC_START_LOCAL_EMBED_SERVER:-0}"
 export RTC_PLUGIN_AUTO_START="${RTC_PLUGIN_AUTO_START:-1}"
 export RTC_PLUGIN_AUTO_STOP="${RTC_PLUGIN_AUTO_STOP:-1}"
 export RTC_PLUGIN_START_WAIT="${RTC_PLUGIN_START_WAIT:-60}"
+export RTC_INJECT_CODE_POLICY_ON_SUBMIT="${RTC_INJECT_CODE_POLICY_ON_SUBMIT:-0}"
 export CLAUDE_CODE_DEBUG_LOGS_DIR="${CLAUDE_CODE_DEBUG_LOGS_DIR:-$LOGS_DIR}"
 export CLAUDE_CODE_DEBUG_LOG_LEVEL="${CLAUDE_CODE_DEBUG_LOG_LEVEL:-debug}"
+
+CLAUDE_RUN_PLUGIN_DIR="$EXPERIMENT_DIR/claude-plugin-prompt-injection"
+rm -rf "$CLAUDE_RUN_PLUGIN_DIR"
+mkdir -p "$CLAUDE_RUN_PLUGIN_DIR"
+cp -a "$CLAUDE_PLUGIN_DIR"/. "$CLAUDE_RUN_PLUGIN_DIR"/
+if [ "${RTC_DISABLE_PLUGIN_SKILLS_FOR_SWE:-1}" = "1" ]; then
+  rm -rf "$CLAUDE_RUN_PLUGIN_DIR/skills"
+  "$PY_BIN" - "$CLAUDE_RUN_PLUGIN_DIR/.claude-plugin/plugin.json" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+data = json.loads(path.read_text(encoding="utf-8"))
+data.pop("skills", None)
+path.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+PY
+fi
 
 ensure_embedding_backend() {
   [ "${RTC_EMBEDDING_PROBE_REQUIRED:-0}" = "1" ] || return 0
@@ -436,7 +463,7 @@ set +e
 (
   cd "$WORK_DIR"
   export PYTHONPATH="$WORK_DIR${PYTHONPATH:+:$PYTHONPATH}"
-  claude --model "$CLAUDE_MODEL" --plugin-dir "$CLAUDE_PLUGIN_DIR" \
+  claude --model "$CLAUDE_MODEL" --plugin-dir "$CLAUDE_RUN_PLUGIN_DIR" \
     --dangerously-skip-permissions \
     --permission-mode bypassPermissions \
     --print --debug-file "$CLAUDE_LOG" < "$WORK_DIR/TASK.md"

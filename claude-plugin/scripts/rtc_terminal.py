@@ -497,7 +497,7 @@ def hook_compose() -> int:
     if len(prompt) < 4 or prompt.startswith("/"):
         return 0
     additions: list[str] = []
-    if looks_like_code_prompt(prompt):
+    if os.environ.get("RTC_INJECT_CODE_POLICY_ON_SUBMIT", "1") != "0" and looks_like_code_prompt(prompt):
         policy = code_policy_prompt()
         if policy:
             additions.append(policy)
