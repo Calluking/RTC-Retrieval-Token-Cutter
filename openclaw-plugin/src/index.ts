@@ -30,6 +30,14 @@ export default definePluginEntry({
             "Native read is disabled by Retrieval Token Cutter for this run. Use rtc_search_code for code context, or rtc_read only when RTC search misses the needed exact text after a focused retry.",
         };
       });
+      api.on("before_tool_call", (event: any) => {
+        if (event?.toolName !== "edit") return undefined;
+        return {
+          block: true,
+          blockReason:
+            "Native edit is disabled by Retrieval Token Cutter for this run. Use rtc_edit_file with old_string copied from rtc_search_code content_excerpt or a narrow rtc_read result.",
+        };
+      });
     }
 
     api.logger?.info?.(

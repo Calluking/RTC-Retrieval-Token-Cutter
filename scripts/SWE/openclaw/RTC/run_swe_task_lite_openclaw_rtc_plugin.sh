@@ -31,7 +31,7 @@ fi
 # Priority: first CLI arg > env > default.
 # Default to a Flask SWE-bench Lite task for faster Python-centric debugging.
 export SWE_LITE_INSTANCE_ID="${1:-${SWE_LITE_INSTANCE_ID:-pallets__flask-4045}}"
-export RTC_SEARCH_LIMIT="${RTC_SEARCH_LIMIT:-4}"
+export RTC_SEARCH_LIMIT="${RTC_SEARCH_LIMIT:-5}"
 export SWE_USE_DERIVED_LOCAL_ENV="${SWE_USE_DERIVED_LOCAL_ENV:-1}"
 export SWE_VALIDATION_FORCE_LOCAL="${SWE_VALIDATION_FORCE_LOCAL:-1}"
 export SWE_SKIP_VALIDATION="${SWE_SKIP_VALIDATION:-1}"
@@ -131,7 +131,6 @@ iid = row["instance_id"]
 repo = row["repo"]
 base_commit = row["base_commit"]
 problem = (row.get("problem_statement") or "").strip()
-hints = (row.get("hints_text") or "").strip()
 inst_path = os.path.join(repo_base, iid, "instance.json")
 os.makedirs(os.path.dirname(inst_path), exist_ok=True)
 with open(inst_path, "w", encoding="utf-8") as f:
@@ -146,42 +145,15 @@ print(f"export SWE_REPO={esc(repo)}")
 print(f"export SWE_BASE_COMMIT={esc(base_commit)}")
 print(f"export SWE_INSTANCE_JSON={esc(os.path.abspath(inst_path))}")
 
-prompt = f"""You are working on a real open-source project as in the SWE-bench Lite benchmark.
+prompt = f"""{problem}
 
-Repository: {repo}
-Checkout: parent commit (state before the fix) is {base_commit}. The codebase is already checked out in this directory.
-Do not look up or apply the original solution PR or patch from the web.
-
-Official issue text (`problem_statement`):
-
----
-{problem}
----
-"""
-if hints:
-    prompt += f"""
-Optional prior discussion (`hints_text`):
----
-{hints}
----
-"""
-prompt += """
-Fix the issue described above. The Retrieval Token Cutter OpenClaw plugin supplies
-the code-search/edit policy and final-answer requirements for this coding task.
+Generate a patch that resolves the issue.
 
 Important SWE-bench rule:
 - Do not edit benchmark tests, test files, or test fixtures.
 - Make the minimal production source-code change needed to satisfy the issue.
 - You may run existing tests to reproduce and verify, but the final patch should
   be source-only unless the issue explicitly asks for test changes.
-- If the issue text mentions behavior that was already added for a related code
-  path, search for that related behavior and keep the public exception semantics
-  consistent. Do not use Python `assert` for runtime user-input validation.
-- For Flask blueprint dot-name tasks, validate both sides of the issue text:
-  dotted blueprint names must raise `ValueError`, and the existing dotted
-  endpoint / view-function-name checks must raise `ValueError` too. A patch
-  that leaves those endpoint checks as `AssertionError` is incomplete and will
-  fail validation; do not preserve that assertion behavior.
 """
 prompt_path = os.path.join(repo_base, iid, "PROMPT_OPENCLAW_RTC.txt")
 with open(prompt_path, "w", encoding="utf-8") as f:
@@ -248,13 +220,13 @@ CANON_LOCK="$LOCKS_DIR/${SWE_INSTANCE_ID}.canon.lock"
 } 9>"$CANON_LOCK"
 cp -a "$SWE_INSTANCE_JSON" "$EXPERIMENT_DIR/instance.json"
 cp -a "$SWE_PROMPT_FILE" "$WORK_DIR/TASK.md"
-cat >>"$WORK_DIR/TASK.md" <<EOF2
-
-## Workspace Paths
-- OpenClaw is launched against the SWE task checkout: \`$WORK_DIR\`.
-- Retrieval Token Cutter search should use the SWE task checkout: \`$WORK_DIR\`.
-- Edits for this SWE task should be made in the task checkout: \`$WORK_DIR\`.
-EOF2
+CODE_POLICY_PROMPT="$OPENCLAW_PLUGIN_DIR/prompts/code_policy_injection.txt"
+if [ "${RTC_APPEND_CODE_POLICY_TO_TASK:-1}" = "1" ] && [ -f "$CODE_POLICY_PROMPT" ]; then
+  {
+    printf '\n'
+    cat "$CODE_POLICY_PROMPT"
+  } >> "$WORK_DIR/TASK.md"
+fi
 
 OPENCLAW_STDOUT="$LOGS_DIR/openclaw-stdout.log"
 OPENCLAW_JSON="$LOGS_DIR/openclaw-agent.json"
@@ -287,26 +259,6 @@ PY
     echo "[setup] Failed to refresh current workspace install; see $LOCAL_ENV_PREP_LOG" >&2
     exit 1
   fi
-  cat >>"$WORK_DIR/TASK.md" <<EOF2
-
-	## Local SWE-bench Environment
-	- This workspace has a task-specific environment derived from the official SWE-bench \`TestSpec\`.
-	- Use \`$SWE_TASK_ENV_HELPER\` for every reproduction and verification command.
-	- Do not use raw \`python\`, raw \`python -m pytest\`, or raw \`pytest\`; those may hit the host environment.
-	- Use:
-	  - \`./RUN_IN_SWE_LOCAL_ENV.sh pytest -q <target>\`
-	  - \`./RUN_IN_SWE_LOCAL_ENV.sh python -m pytest -q <target>\`
-	- For inline Python snippets, prefer:
-	  - \`./RUN_IN_SWE_LOCAL_ENV.sh --stdin-python <<'PY'\`
-	  - \`...\`
-	  - \`PY\`
-	- If editable-install state needs refreshing after a structural change, use:
-	  - \`./RUN_IN_SWE_LOCAL_ENV.sh --reinstall pytest -q <target>\`
-	- Avoid shared temp files like \`/tmp/build.log\`; keep per-run logs under the workspace or \`logs/\`.
-	- Local env prefix: \`$SWE_TASK_ENV_PREFIX\`
-	- Local env create log: \`$SWE_TASK_ENV_CREATE_LOG\`
-- Local env command log: \`$SWE_TASK_ENV_COMMAND_LOG\`
-EOF2
 fi
 
 if ! [[ "$RUN_IDX" =~ ^[0-9]+$ ]]; then
@@ -352,7 +304,7 @@ export RTC_START_LOCAL_EMBED_SERVER="${RTC_START_LOCAL_EMBED_SERVER:-0}"
 export RTC_OPENCLAW_AUTO_START="${RTC_OPENCLAW_AUTO_START:-1}"
 export RTC_OPENCLAW_AUTO_STOP="${RTC_OPENCLAW_AUTO_STOP:-1}"
 export RTC_OPENCLAW_READ_TOOL_POLICY="${RTC_OPENCLAW_READ_TOOL_POLICY:-guard}"
-export RTC_OPENCLAW_SOUL_POLICY="${RTC_OPENCLAW_SOUL_POLICY:-rtc}"
+export RTC_OPENCLAW_SOUL_POLICY="${RTC_OPENCLAW_SOUL_POLICY:-none}"
 export RTC_PLUGIN_START_WAIT="${RTC_PLUGIN_START_WAIT:-60}"
 
 ensure_embedding_backend() {
@@ -484,7 +436,7 @@ openclaw config set plugins.entries.retrieval-token-cutter.config.autoStart fals
   > "$LOGS_DIR/openclaw-config-autostart.log" 2>&1
 openclaw config set plugins.entries.retrieval-token-cutter.config.autoStop false --strict-json \
   > "$LOGS_DIR/openclaw-config-autostop.log" 2>&1
-openclaw config set plugins.entries.retrieval-token-cutter.config.injectCodePolicy true --strict-json \
+openclaw config set plugins.entries.retrieval-token-cutter.config.injectCodePolicy false --strict-json \
   > "$LOGS_DIR/openclaw-config-inject.log" 2>&1
 openclaw config set plugins.entries.retrieval-token-cutter.config.readToolPolicy "$(json_string "$RTC_OPENCLAW_READ_TOOL_POLICY")" --strict-json \
   > "$LOGS_DIR/openclaw-config-read-tool-policy.log" 2>&1
@@ -515,12 +467,6 @@ patch construction. Do not use native `read` or `rtc_read` when same-file RTC
 snippets exist.
 EOF2
 fi
-
-cat >>"$WORK_DIR/TASK.md" <<'EOF2'
-
-## Final RTC Reminder
-Before first edit: exactly 1 combined `rtc_search_code`; no source/doc `read`, `rtc_read`, or `exec` grep/sed/cat/rg/head/tail/wc. Edit minimal production source from snippets. If one edit fails to match, do one same-file search and one retry; if it still fails, stop. Never `rtc_read` when same-file snippets exist. After a successful edit, run one verification and git diff/status; if it passes, final answer.
-EOF2
 
 set +e
 (

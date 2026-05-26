@@ -129,7 +129,6 @@ iid = row["instance_id"]
 repo = row["repo"]
 base_commit = row["base_commit"]
 problem = (row.get("problem_statement") or "").strip()
-hints = (row.get("hints_text") or "").strip()
 inst_path = os.path.join(repo_base, iid, "instance.json")
 os.makedirs(os.path.dirname(inst_path), exist_ok=True)
 with open(inst_path, "w", encoding="utf-8") as f:
@@ -144,42 +143,9 @@ print(f"export SWE_REPO={esc(repo)}")
 print(f"export SWE_BASE_COMMIT={esc(base_commit)}")
 print(f"export SWE_INSTANCE_JSON={esc(os.path.abspath(inst_path))}")
 
-prompt = f"""You are working on a real open-source project as in the SWE-bench Lite benchmark.
+prompt = f"""{problem}
 
-Repository: {repo}
-Checkout: parent commit (state before the fix) is {base_commit}. The codebase is already checked out in this directory.
-Do not look up or apply the original solution PR or patch from the web.
-
-Official issue text (`problem_statement`):
-
----
-{problem}
----
-"""
-if hints:
-    prompt += f"""
-Optional prior discussion (`hints_text`):
----
-{hints}
----
-"""
-prompt += """
-Fix the issue described above. Follow the Retrieval Token Cutter MCP
-search/edit policy and final-answer requirements included in this prompt.
-
-Important SWE-bench rule:
-- Do not edit benchmark tests, test files, or test fixtures.
-- Make the minimal production source-code change needed to satisfy the issue.
-- You may run existing tests to reproduce and verify, but the final patch should
-  be source-only unless the issue explicitly asks for test changes.
-- If the issue text mentions behavior that was already added for a related code
-  path, search for that related behavior and keep the public exception semantics
-  consistent. Do not use Python `assert` for runtime user-input validation.
-- For Flask blueprint dot-name tasks, validate both sides of the issue text:
-  dotted blueprint names must raise `ValueError`, and the existing dotted
-  endpoint / view-function-name checks must raise `ValueError` too. A patch
-  that leaves those endpoint checks as `AssertionError` is incomplete and will
-  fail validation; do not preserve that assertion behavior.
+Generate a patch that resolves the issue.
 """
 prompt_path = os.path.join(repo_base, iid, "PROMPT_RTC.txt")
 with open(prompt_path, "w", encoding="utf-8") as f:
@@ -247,13 +213,6 @@ CANON_LOCK="$LOCKS_DIR/${SWE_INSTANCE_ID}.canon.lock"
 cp -a "$SWE_INSTANCE_JSON" "$EXPERIMENT_DIR/instance.json"
 cp -a "$SWE_PROMPT_FILE" "$WORK_DIR/TASK.md"
 export RTC_WORKSPACE_ROOT="${RTC_WORKSPACE_ROOT:-$WORK_DIR}"
-cat >>"$WORK_DIR/TASK.md" <<EOF2
-
-## Workspace Paths
-- Claude is launched from the SWE task checkout: \`$WORK_DIR\`.
-- Retrieval Token Cutter search should use the SWE task checkout: \`$RTC_WORKSPACE_ROOT\`.
-- Edits for this SWE task should be made in the task checkout: \`$WORK_DIR\`.
-EOF2
 
 CODE_POLICY_PROMPT="$CLAUDE_PLUGIN_DIR/prompts/code_policy_injection.txt"
 if [ "${RTC_APPEND_CODE_POLICY_TO_TASK:-1}" = "1" ] && [ -f "$CODE_POLICY_PROMPT" ]; then
@@ -283,26 +242,6 @@ if [ "$SWE_USE_DERIVED_LOCAL_ENV" = "1" ]; then
     exit 1
   fi
   eval "$_local_env_exports"
-  cat >>"$WORK_DIR/TASK.md" <<EOF2
-
-	## Local SWE-bench Environment
-	- This workspace has a task-specific environment derived from the official SWE-bench \`TestSpec\`.
-	- Use \`$SWE_TASK_ENV_HELPER\` for every reproduction and verification command.
-	- Do not use raw \`python\`, raw \`python -m pytest\`, or raw \`pytest\`; those may hit the host environment.
-	- Use:
-	  - \`./RUN_IN_SWE_LOCAL_ENV.sh pytest -q <target>\`
-	  - \`./RUN_IN_SWE_LOCAL_ENV.sh python -m pytest -q <target>\`
-	- For inline Python snippets, prefer:
-	  - \`./RUN_IN_SWE_LOCAL_ENV.sh --stdin-python <<'PY'\`
-	  - \`...\`
-	  - \`PY\`
-	- If editable-install state needs refreshing after a structural change, use:
-	  - \`./RUN_IN_SWE_LOCAL_ENV.sh --reinstall pytest -q <target>\`
-	- Avoid shared temp files like \`/tmp/build.log\`; keep per-run logs under the workspace or \`logs/\`.
-	- Local env prefix: \`$SWE_TASK_ENV_PREFIX\`
-	- Local env create log: \`$SWE_TASK_ENV_CREATE_LOG\`
-- Local env command log: \`$SWE_TASK_ENV_COMMAND_LOG\`
-EOF2
 fi
 
 if ! [[ "$RUN_IDX" =~ ^[0-9]+$ ]]; then

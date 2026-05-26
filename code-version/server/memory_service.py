@@ -4171,6 +4171,32 @@ class MemoryService:
                 limit=top_k,
             )
             timings["hybrid_fuse_sec"] = round(time.perf_counter() - t_fuse, 3)
+            if len(fused_hits) < top_k:
+                seen_uris = {str(hit.get("uri") or "") for hit in fused_hits if hit.get("uri")}
+                route_fillers: list[dict] = []
+                for route, route_hits in (
+                    ("embedding", embed_score_hits),
+                    ("bm25", bm25_score_hits),
+                    ("ctags", ctags_score_hits),
+                    ("graph", graph_score_hits),
+                ):
+                    for hit in route_hits:
+                        uri = str(hit.get("uri") or "")
+                        if not uri or uri in seen_uris:
+                            continue
+                        if not (hit.get("content_excerpt") or hit.get("abstract")):
+                            continue
+                        filler = dict(hit)
+                        filler["retrieval_source"] = "hybrid"
+                        filler["score_kind"] = "route_fill_after_weighted_rrf"
+                        filler["route_ranks"] = {route: len(route_fillers) + 1}
+                        seen_uris.add(uri)
+                        route_fillers.append(filler)
+                        if len(fused_hits) + len(route_fillers) >= top_k:
+                            break
+                    if len(fused_hits) + len(route_fillers) >= top_k:
+                        break
+                fused_hits.extend(route_fillers)
             logger.info(
                 "code_semantic_search hybrid path: query=%r candidates=%d embed=%d bm25=%d ctags=%d graph=%d fused=%d timings=%s",
                 query,

@@ -337,6 +337,7 @@ def build_local_prediction(instance, workspace, experiment_dir):
     patch = subprocess.run(
         ["git", "diff", "--binary"],
         cwd=str(workspace),
+        env=workspace_git_env(workspace, experiment_dir, os.environ.copy()),
         capture_output=True,
         text=True,
         check=True,

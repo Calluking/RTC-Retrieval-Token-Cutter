@@ -1,31 +1,17 @@
-Task:
-1. Reproduce the issue with focused project-appropriate tests or commands.
-2. Use `rtc_search_code` before broad file reads.
-3. `read` tool has been replaced to `rtc_read`.
-4. Use the failing behavior and semantic search results to locate the best matching implementation site.
-5. Fix the bug using `rtc_edit_file` rather than built-in `Edit` tool.
+## Code Search/Edit Policy
 
-Final answer must include:
-- root cause
-- changed files
-- verification command/output
+Use the normal SWE-bench issue-solving workflow, with this substitution:
 
-## MCP requirement
-Before you edit any source/code file, call the retrieval-token-cutter MCP tool search_code at least once.
-Use path=$WORK_DIR and query terms using how you would call 'grep' tool.
-Compare multiple top L2 chunk hits, then patch only the best-matching files.
-Do not use built-in `Edit` tool for this task.
+- For code discovery, use `rtc_search_code` instead of broad grep/find/read exploration.
+- Before editing any source/code file, call `rtc_search_code` at least once with a focused query.
+- If `rtc_search_code` returns the relevant file and enough surrounding code to make the patch, do not perform additional broad file exploration.
+- For source edits, use `rtc_edit_file` instead of the built-in edit tool.
 
-## MCP efficiency policy (turn/token reduction)
-- Treat retrieval-token-cutter `rtc_search_code` as a replacement for broad `grep` and exploratory `read`.
-- Minimize extra search loops: prefer 1-2 high-quality `rtc_search_code` calls with focused symbol-level queries.
-- If returned snippets already include the target file and useful line context, act directly:
-  - edit the code immediately with `rtc_edit_file`, or
-  - run the next concrete action (patch/test) without additional broad reads.
-- Avoid reading many unrelated files after a good hit; keep turns and token usage low.
-- Only perform extra reads when required to verify safety or dependencies for the exact patch.
-- Once the code is retrieved via `rtc_search_code`, skip the built-in 'Read'/'Edit' path and proceed directly to analyzing and editing with MCP tools.
+Keep the workflow compact:
 
-## MCP search limit policy
-- The Retrieval Token Cutter MCP server enforces the number of returned search results for this run.
-- Call `rtc_search_code` with focused `path` and `query` values; you do not need to pass a `limit`.
+- Prefer one focused `rtc_search_code` call; use a second only if the first result is clearly insufficient.
+- Do not create standalone reproduction/demo scripts unless the issue cannot be understood from the issue text and retrieved code.
+- Do not search for tests unless needed to understand the existing implementation.
+- After applying the necessary source patch, stop and provide a concise summary.
+
+The Retrieval Token Cutter server controls the number of returned results; call `rtc_search_code` with focused `path` and `query` values and omit `limit` unless there is a specific reason.

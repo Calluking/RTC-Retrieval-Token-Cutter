@@ -81,7 +81,6 @@ instance_id = row["instance_id"]
 repo = row["repo"]
 base_commit = row["base_commit"]
 problem = (row.get("problem_statement") or "").strip()
-hints = (row.get("hints_text") or "").strip()
 
 instance_path = os.path.join(repo_base, instance_id, "instance.json")
 os.makedirs(os.path.dirname(instance_path), exist_ok=True)
@@ -97,50 +96,9 @@ print(f"export SWE_REPO={esc(repo)}")
 print(f"export SWE_BASE_COMMIT={esc(base_commit)}")
 print(f"export SWE_INSTANCE_JSON={esc(os.path.abspath(instance_path))}")
 
-prompt = f"""You are working on a real open-source project as in the SWE-bench Lite benchmark.
+prompt = f"""{problem}
 
-Repository: {repo}
-Checkout: parent commit (state before the fix) is {base_commit}. The codebase is already checked out in this directory.
-Do not look up or apply the original solution PR or patch from the web.
-
-Official issue text (`problem_statement`):
-
----
-{problem}
----
-"""
-if hints:
-    prompt += f"""
-Optional prior discussion (`hints_text`):
----
-{hints}
----
-"""
-prompt += """
-Task:
-1. Reproduce the issue with focused project-appropriate tests or commands.
-2. Use the failing behavior to locate the best matching implementation site.
-3. Fix the bug using the available editing tools.
-4. Re-run verification and ensure the relevant tests pass.
-
-Final answer must include:
-- root cause
-- changed files
-- verification command/output
-
-Important SWE-bench rule:
-- Do not edit benchmark tests, test files, or test fixtures.
-- Make the minimal production source-code change needed to satisfy the issue.
-- You may run existing tests to reproduce and verify, but the final patch should
-  be source-only unless the issue explicitly asks for test changes.
-- If the issue text mentions behavior that was already added for a related code
-  path, search for that related behavior and keep the public exception semantics
-  consistent. Do not use Python `assert` for runtime user-input validation.
-- For Flask blueprint dot-name tasks, validate both sides of the issue text:
-  dotted blueprint names must raise `ValueError`, and the existing dotted
-  endpoint / view-function-name checks must raise `ValueError` too. A patch
-  that leaves those endpoint checks as `AssertionError` is incomplete and will
-  fail validation; do not preserve that assertion behavior.
+Generate a patch that resolves the issue.
 """
 
 prompt_path = os.path.join(repo_base, instance_id, "PROMPT_PLAIN.txt")
@@ -208,12 +166,6 @@ CANON_LOCK="$LOCKS_DIR/${SWE_INSTANCE_ID}.canon.lock"
 
 cp -a "$SWE_INSTANCE_JSON" "$EXPERIMENT_DIR/instance.json"
 cp -a "$SWE_PROMPT_FILE" "$WORK_DIR/TASK.md"
-cat >>"$WORK_DIR/TASK.md" <<EOF2
-
-## Workspace
-- Claude is launched from the SWE task checkout: \`$WORK_DIR\`.
-- Make edits for this SWE task in the task checkout: \`$WORK_DIR\`.
-EOF2
 
 CLAUDE_LOG="$LOGS_DIR/claude-code-debug.log"
 CLAUDE_STDOUT="$LOGS_DIR/claude-stdout.log"
@@ -237,13 +189,6 @@ if [ "$SWE_USE_DERIVED_LOCAL_ENV" = "1" ]; then
     exit 1
   fi
   eval "$local_env_exports"
-  cat >>"$WORK_DIR/TASK.md" <<EOF2
-
-## Local SWE-bench Environment
-- Use \`$SWE_TASK_ENV_HELPER\` for reproduction and verification commands.
-- Prefer \`./RUN_IN_SWE_LOCAL_ENV.sh pytest -q <target>\`.
-- Do not use raw \`python\` or raw \`pytest\` for task verification; those may hit the host interpreter.
-EOF2
 fi
 
 set +e

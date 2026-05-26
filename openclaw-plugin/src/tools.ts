@@ -88,14 +88,12 @@ function slimHit(hit: unknown): Record<string, unknown> | null {
   if (relativePath) slim.path = relativePath;
   if (item.start_line !== undefined) slim.start_line = item.start_line;
   if (item.end_line !== undefined) slim.end_line = item.end_line;
-  if (item.score !== undefined) slim.score = item.score;
   if (item.source !== undefined) slim.source = item.source;
   return slim;
 }
 
-function slimSearchResponse(response: unknown, localSnippets: unknown[] = []): unknown {
-  const debug = ["1", "true", "yes", "on"].includes((process.env.RTC_SEARCH_DEBUG || "").toLowerCase());
-  if (debug) return response;
+function slimSearchResponse(response: unknown, localSnippets: unknown[] = [], limit?: number): unknown {
+  if (searchDebugEnabled()) return response;
 
   const data = asRecord(response);
   if (!data) return response;
@@ -106,15 +104,61 @@ function slimSearchResponse(response: unknown, localSnippets: unknown[] = []): u
     };
   }
 
+  const maxHits = Math.max(1, Number(limit || hitsDefaultLimit()));
+  const seen = new Set<string>();
   const rawHits = Array.isArray(data.hits) ? data.hits : [];
   const hits = [...rawHits, ...localSnippets]
     .map(slimHit)
-    .filter((hit): hit is Record<string, unknown> => Boolean(hit));
+    .filter((hit): hit is Record<string, unknown> => {
+      if (!hit) return false;
+      const key = String(hit.uri || hit.path || hit.content_excerpt || "");
+      if (!key || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .slice(0, maxHits);
 
   return {
     hit_count: hits.length,
     hits,
   };
+}
+
+function hitsDefaultLimit(): number {
+  const parsed = Number(process.env.RTC_SEARCH_LIMIT || 5);
+  return Number.isFinite(parsed) ? parsed : 5;
+}
+
+function searchDebugEnabled(): boolean {
+  return ["1", "true", "yes", "on"].includes((process.env.RTC_SEARCH_DEBUG || "").toLowerCase()) ||
+    ["1", "true", "yes", "on"].includes((process.env.RTC_SEARCH_INCLUDE_DEBUG || "").toLowerCase());
+}
+
+function formatSearchSnippets(result: unknown, query?: string): string {
+  if (searchDebugEnabled()) return prettyJson(result);
+
+  const data = asRecord(result);
+  if (!data) return typeof result === "string" ? result : prettyJson(result);
+  if (data.ok === false || data.error) return prettyJson(result);
+
+  const lines: string[] = [];
+  const searchQuery = String(data.query || query || "").trim();
+  if (searchQuery) lines.push(`# search_code query: ${searchQuery}`);
+
+  const hits = Array.isArray(data.hits) ? data.hits.filter((hit) => asRecord(hit)) : [];
+  lines.push(`# hit_count: ${hits.length}`);
+
+  hits.forEach((hit, index) => {
+    const item = asRecord(hit);
+    if (!item) return;
+    const excerpt = String(item.content_excerpt || item.abstract || "").trim();
+    if (!excerpt) return;
+    lines.push("");
+    lines.push(`# hit ${index + 1}`);
+    lines.push(excerpt);
+  });
+
+  return `${lines.join("\n").trimEnd()}\n`;
 }
 
 function paramsFromArgs<T>(arg1: unknown, arg2: unknown): T {
@@ -217,8 +261,21 @@ async function localSnippetFallback(root: string, query: string, globPatterns?: 
   const terms = termsForLocalSearch(query, grepTerms);
   if (!patterns.length && !terms.length) return [];
 
-  const files = patterns.length ? await filesForGlobs(root, patterns) : [];
-  const candidates = files.slice(0, 80);
+  const files = patterns.length ? await filesForGlobs(root, patterns) : await walkFiles(root, 3000);
+  const lowerTerms = terms.map((term) => term.toLowerCase());
+  const codeLike = new Set([
+    ".py", ".pyi", ".js", ".jsx", ".ts", ".tsx", ".java", ".go", ".rs", ".c", ".cc", ".cpp", ".h", ".hpp",
+    ".rb", ".php", ".cs", ".swift", ".kt", ".scala", ".sh", ".txt", ".rst", ".md",
+  ]);
+  const rankedFiles = files
+    .filter((file) => codeLike.has(path.extname(file).toLowerCase()))
+    .map((file) => {
+      const rel = path.relative(root, file).split(path.sep).join("/").toLowerCase();
+      const score = lowerTerms.reduce((total, term) => total + (rel.includes(term) ? 1 : 0), 0);
+      return { file, score };
+    })
+    .sort((a, b) => b.score - a.score);
+  const candidates = rankedFiles.map((item) => item.file).slice(0, patterns.length ? 80 : 300);
   const hits: unknown[] = [];
   for (const file of candidates) {
     let stat;
@@ -235,7 +292,6 @@ async function localSnippetFallback(root: string, query: string, globPatterns?: 
       continue;
     }
     const lines = text.split(/\r?\n/);
-    const lowerTerms = terms.map((term) => term.toLowerCase());
     let matchLine = 0;
     if (lowerTerms.length) {
       matchLine = lines.findIndex((line) => {
@@ -412,9 +468,9 @@ export function registerRtcTools(api: any, config: ResolvedConfig, ensureBackend
         } catch (error) {
           throw error;
         }
-        const slim = slimSearchResponse(response, localSnippets);
+        const slim = slimSearchResponse(response, localSnippets, body.limit);
         rememberRtcHitFiles(body.workspaceRoot, slim);
-        return toolResult(slim);
+        return toolResult(formatSearchSnippets(slim, body.query));
       },
     },
     ["rtc_search_code"],
