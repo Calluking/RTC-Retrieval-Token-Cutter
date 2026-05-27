@@ -6,13 +6,16 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import shutil
+import shlex
 import signal
 import subprocess
 import sys
 import time
 import urllib.error
 import urllib.request
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -80,6 +83,10 @@ def compact_json(obj: Any, limit: int = MAX_TOOL_CHARS) -> str:
     if len(text) <= limit:
         return text
     return text[:limit] + f"\n... [{len(text) - limit} more chars omitted]"
+
+
+def truthy_env(name: str, default: str = "0") -> bool:
+    return (os.environ.get(name, default) or "").strip().lower() in {"1", "true", "yes", "on"}
 
 
 def looks_like_code_prompt(prompt: str) -> bool:
@@ -550,6 +557,454 @@ def hook_add_session_message() -> int:
     return 0
 
 
+def _workspace_root() -> str:
+    return os.environ.get("RTC_WORKSPACE_ROOT") or os.environ.get("CLAUDE_PROJECT_DIR") or os.getcwd()
+
+
+def _canonicalize_read_file_path(file_path: str, workspace_root: str) -> tuple[str, str]:
+    """Map invented absolute repo paths back into the active workspace."""
+    raw = str(file_path or "").strip()
+    if not raw:
+        return raw, ""
+
+    root = Path(workspace_root or os.getcwd()).expanduser().resolve()
+    target = Path(raw).expanduser()
+    if not target.is_absolute():
+        return raw, ""
+
+    try:
+        resolved = target.resolve(strict=False)
+        resolved.relative_to(root)
+        if resolved.is_dir() and (resolved / "TASK.md").exists():
+            return str(resolved / "TASK.md"), "rewrote workspace directory Read to TASK.md"
+        return raw, ""
+    except ValueError:
+        pass
+
+    if target.is_dir() and (root / "TASK.md").exists():
+        return str(root / "TASK.md"), "rewrote external directory Read to workspace TASK.md"
+
+    parts = target.parts
+    # Prefer meaningful repo-relative suffixes over basename-only matches.
+    for start in range(1, max(len(parts) - 1, 1)):
+        suffix = Path(*parts[start:])
+        if len(suffix.parts) < 2:
+            continue
+        candidate = (root / suffix).resolve(strict=False)
+        try:
+            candidate.relative_to(root)
+        except ValueError:
+            continue
+        if candidate.exists():
+            return str(candidate), f"rewrote missing absolute path to workspace-relative suffix {suffix.as_posix()}"
+
+    if target.name:
+        candidate = (root / target.name).resolve(strict=False)
+        try:
+            candidate.relative_to(root)
+        except ValueError:
+            pass
+        else:
+            if candidate.exists():
+                return str(candidate), f"rewrote missing absolute path to workspace root file {target.name}"
+
+    if target.exists():
+        return raw, ""
+
+    return raw, ""
+
+
+def _canonicalize_command_path_arg(raw_path: str, workspace_root: str) -> tuple[str, str]:
+    root = Path(workspace_root or os.getcwd()).expanduser().resolve()
+    target = Path(raw_path).expanduser()
+    if not target.is_absolute():
+        return raw_path, ""
+
+    try:
+        target.resolve(strict=False).relative_to(root)
+        return raw_path, ""
+    except ValueError:
+        pass
+
+    if target.name == "source_tree" and (root / "TASK.md").exists():
+        return str(root), "rewrote source_tree project root to active workspace root"
+
+    parts = target.parts
+    for start in range(1, max(len(parts) - 1, 1)):
+        suffix = Path(*parts[start:])
+        candidate = (root / suffix).resolve(strict=False)
+        try:
+            candidate.relative_to(root)
+        except ValueError:
+            continue
+        if candidate.exists():
+            return str(candidate), f"rewrote missing absolute path to workspace-relative suffix {suffix.as_posix()}"
+
+    project_root = Path(os.environ.get("RTC_DIR") or PLUGIN_ROOT.parent).expanduser().resolve()
+    try:
+        target.resolve(strict=False).relative_to(project_root)
+    except ValueError:
+        return raw_path, ""
+    return str(root), "rewrote project-root path to active workspace root"
+
+
+def _canonicalize_command_paths(command: str, workspace_root: str) -> tuple[str, list[str]]:
+    corrected = str(command or "")
+    reasons: list[str] = []
+    if not corrected.strip():
+        return corrected, reasons
+
+    # Handle common unquoted absolute path arguments. Keep this conservative:
+    # only rewrite paths that do not exist but whose repo-relative suffix exists
+    # inside the active workspace.
+    for match in sorted(set(re.findall(r"/[^\s'\"<>|&;]+", corrected)), key=len, reverse=True):
+        raw_path = match
+        trailing = ""
+        while raw_path and raw_path[-1] in ",:)]}":
+            trailing = raw_path[-1] + trailing
+            raw_path = raw_path[:-1]
+        if not raw_path:
+            continue
+        canonical, reason = _canonicalize_command_path_arg(raw_path, workspace_root)
+        if not reason or canonical == raw_path:
+            continue
+        replacement = shlex.quote(canonical) + trailing
+        corrected = corrected.replace(match, replacement)
+        reasons.append(reason)
+    return corrected, reasons
+
+
+def _django_pytest_target_to_runtests(target: str) -> str:
+    target = str(target or "").strip()
+    if not target:
+        return ""
+    path_part, _, selector = target.partition("::")
+    target = path_part
+    if target.startswith("tests/"):
+        target = target[len("tests/"):]
+    if target.endswith(".py"):
+        target = target[:-3]
+    target = target.replace("/", ".")
+    if target.startswith("tests."):
+        target = target[len("tests."):]
+    if selector:
+        target = target + "." + selector.replace("::", ".")
+    return target
+
+
+def _rewrite_known_test_commands(command: str, workspace_root: str) -> tuple[str, str]:
+    root = Path(workspace_root or os.getcwd()).expanduser().resolve()
+    if not (root / "django").is_dir() or not (root / "tests" / "runtests.py").exists():
+        return command, ""
+
+    compact = " ".join(str(command or "").strip().split())
+    if not compact:
+        return command, ""
+
+    pytest_match = re.search(
+        r"(?:^|&&|;)\s*(?:python(?:\d+(?:\.\d+)?)?\s+-m\s+pytest|pytest)\s+([^\s|;&]+)",
+        compact,
+    )
+    if pytest_match:
+        module = _django_pytest_target_to_runtests(pytest_match.group(1))
+        if module:
+            return (
+                f"cd {shlex.quote(str(root / 'tests'))} && python runtests.py {shlex.quote(module)} -v 2 2>&1",
+                "rewrote Django pytest command to tests/runtests.py",
+            )
+
+    runtests_root = re.search(r"(?:^|&&|;)\s*python(?:\d+(?:\.\d+)?)?\s+runtests\.py\s+([^\s|;&]+)", compact)
+    if runtests_root and "cd tests" not in compact and f"cd {root / 'tests'}" not in compact:
+        module = runtests_root.group(1)
+        if module.startswith("tests."):
+            module = module[len("tests."):]
+        return (
+            f"cd {shlex.quote(str(root / 'tests'))} && python runtests.py {shlex.quote(module)} -v 2 2>&1",
+            "rewrote Django root runtests.py command to tests/runtests.py",
+        )
+
+    return command, ""
+
+
+def hook_filter_read() -> int:
+    if not truthy_env("RTC_FILTER_ENABLED", "1") or not truthy_env("RTC_FILTER_NATIVE_READ", "1"):
+        return 0
+
+    raw = sys.stdin.read()
+    try:
+        hook = json.loads(raw) if raw.strip() else {}
+    except json.JSONDecodeError:
+        log("call_filter_read", "invalid hook JSON")
+        return 0
+
+    session_id = str(hook.get("session_id") or "unknown")
+    if session_id == "unknown" or str(hook.get("tool_name") or "") != "Read":
+        return 0
+
+    tool_input = hook.get("tool_input")
+    if not isinstance(tool_input, dict):
+        return 0
+
+    file_path = str(tool_input.get("file_path") or "").strip()
+    if not file_path:
+        return 0
+
+    workspace_root = _workspace_root()
+    canonical_file_path, canonical_reason = _canonicalize_read_file_path(file_path, workspace_root)
+    if canonical_reason:
+        log("call_filter_read", canonical_reason)
+
+    if tool_input.get("offset") is not None or tool_input.get("limit") is not None:
+        if canonical_file_path == file_path:
+            return 0
+        updated = dict(tool_input)
+        updated["file_path"] = canonical_file_path
+        response = {
+            "hookSpecificOutput": {
+                "hookEventName": "PreToolUse",
+                "permissionDecision": "allow",
+                "permissionDecisionReason": "RTC corrected Read path to active workspace",
+                "updatedInput": updated,
+            }
+        }
+        sys.stdout.write(json.dumps(response, ensure_ascii=False))
+        return 0
+
+    body = {
+        **identity(session_id),
+        "file_path": canonical_file_path,
+        "workspaceRoot": workspace_root,
+        "tool_name": "Read",
+    }
+    try:
+        data = post_json("/api/v1/filter_read", body, timeout=10)
+    except Exception as exc:
+        log("call_filter_read", f"failed: {exc}")
+        return 0
+
+    if not data.get("ok") or not data.get("filtered_file_path"):
+        log("call_filter_read", f"skip reason={data.get('reason') or data.get('error') or 'unknown'}")
+        return 0
+
+    updated = dict(tool_input)
+    updated["file_path"] = str(data["filtered_file_path"])
+    response = {
+        "hookSpecificOutput": {
+            "hookEventName": "PreToolUse",
+            "permissionDecision": "allow",
+            "permissionDecisionReason": "RTC returned filtered L0 for native Read",
+            "updatedInput": updated,
+        }
+    }
+    log(
+        "call_filter_read",
+        "stored=%s detected=%s chars=%s->%s"
+        % (
+            data.get("memory_uri", ""),
+            data.get("detected", ""),
+            data.get("original_chars", ""),
+            data.get("filtered_chars", ""),
+        ),
+    )
+    sys.stdout.write(json.dumps(response, ensure_ascii=False))
+    return 0
+
+
+def hook_filter_grep() -> int:
+    if not truthy_env("RTC_FILTER_ENABLED", "1"):
+        return 0
+
+    raw = sys.stdin.read()
+    try:
+        hook = json.loads(raw) if raw.strip() else {}
+    except json.JSONDecodeError:
+        log("call_filter_grep", "invalid hook JSON")
+        return 0
+
+    if str(hook.get("tool_name") or "") != "Grep":
+        return 0
+    tool_input = hook.get("tool_input")
+    if not isinstance(tool_input, dict):
+        return 0
+
+    raw_path = str(tool_input.get("path") or "").strip()
+    if not raw_path:
+        return 0
+    canonical_path, reason = _canonicalize_command_path_arg(raw_path, _workspace_root())
+    if not reason or canonical_path == raw_path:
+        return 0
+
+    updated = dict(tool_input)
+    updated["path"] = canonical_path
+    response = {
+        "hookSpecificOutput": {
+            "hookEventName": "PreToolUse",
+            "permissionDecision": "allow",
+            "permissionDecisionReason": "RTC corrected Grep path to active workspace",
+            "updatedInput": updated,
+        }
+    }
+    log("call_filter_grep", reason)
+    sys.stdout.write(json.dumps(response, ensure_ascii=False))
+    return 0
+
+
+def _bash_filter_candidate(command: str) -> str:
+    cmd = " ".join((command or "").strip().split())
+    lower = cmd.lower()
+    if not cmd:
+        return ""
+    if re.search(r"(^|[\s;&|()])(?:python(?:\d+(?:\.\d+)?)?\s+-m\s+)?pytest\b", lower):
+        return "test_runner"
+    if re.search(r"(^|[\s;&|()])py\.test\b", lower):
+        return "test_runner"
+    if "tests/runtests.py" in lower or re.search(r"(^|[\s;&|()])tox\b", lower):
+        return "test_runner"
+    if re.search(r"(^|[\s;&|()])npm\s+(run\s+)?test\b", lower):
+        return "test_runner"
+    if re.search(r"(^|[\s;&|()])git\s+diff\b", lower):
+        return "diff"
+    if re.search(r"(^|[\s;&|()])git\s+show\b", lower):
+        return "diff_maybe"
+    if re.search(r"(^|[\s;&|()])cat\s+/tmp/[^;&|]*\.(patch|diff)\b", lower):
+        return "diff"
+    if re.search(r"(^|[\s;&|()])(?:python|python\d+(?:\.\d+)?)\b", lower):
+        return "python_maybe"
+    return ""
+
+
+def hook_filter_bash() -> int:
+    if not truthy_env("RTC_FILTER_ENABLED", "1") or not truthy_env("RTC_FILTER_NATIVE_BASH", "1"):
+        return 0
+
+    raw = sys.stdin.read()
+    try:
+        hook = json.loads(raw) if raw.strip() else {}
+    except json.JSONDecodeError:
+        log("call_filter_bash", "invalid hook JSON")
+        return 0
+
+    session_id = str(hook.get("session_id") or "unknown")
+    if session_id == "unknown" or str(hook.get("tool_name") or "") != "Bash":
+        return 0
+
+    tool_input = hook.get("tool_input")
+    if not isinstance(tool_input, dict):
+        return 0
+    command = str(tool_input.get("command") or "").strip()
+    workspace_root = _workspace_root()
+    command, path_rewrite_reasons = _canonicalize_command_paths(command, workspace_root)
+    for reason in path_rewrite_reasons:
+        log("call_filter_bash", reason)
+    command, test_rewrite_reason = _rewrite_known_test_commands(command, workspace_root)
+    if test_rewrite_reason:
+        log("call_filter_bash", test_rewrite_reason)
+
+    candidate = _bash_filter_candidate(command)
+    if not candidate:
+        if path_rewrite_reasons or test_rewrite_reason:
+            updated = dict(tool_input)
+            updated["command"] = command
+            response = {
+                "hookSpecificOutput": {
+                    "hookEventName": "PreToolUse",
+                    "permissionDecision": "allow",
+                    "permissionDecisionReason": "RTC corrected Bash command for active workspace",
+                    "updatedInput": updated,
+                }
+            }
+            sys.stdout.write(json.dumps(response, ensure_ascii=False))
+        return 0
+
+    runtime_dir = Path(os.environ.get("RTC_RUNTIME_DIR") or ".").expanduser().resolve()
+    hook_dir = runtime_dir / "bash-filter-hook"
+    hook_dir.mkdir(parents=True, exist_ok=True)
+    run_id = uuid.uuid4().hex
+    payload_path = hook_dir / f"{run_id}.json"
+    wrapper_path = hook_dir / f"{run_id}.py"
+    payload = {
+        **identity(session_id),
+        "command": command,
+        "pre_category": candidate,
+        "workspaceRoot": workspace_root,
+        "cwd": str(hook.get("cwd") or os.getcwd()),
+    }
+    payload_path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+    wrapper_path.write_text(
+        '''#!/usr/bin/env python3
+from __future__ import annotations
+
+import json
+import os
+import subprocess
+import sys
+import urllib.request
+
+
+def post_json(path: str, body: dict, timeout: float = 30.0) -> dict:
+    url = (os.environ.get("RTC_URL") or "http://127.0.0.1:8090").rstrip("/") + path
+    req = urllib.request.Request(
+        url,
+        data=json.dumps(body).encode("utf-8"),
+        method="POST",
+        headers={"Content-Type": "application/json"},
+    )
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        raw = resp.read().decode("utf-8")
+    return json.loads(raw) if raw.strip() else {}
+
+
+def main() -> int:
+    payload = json.loads(open(sys.argv[1], "r", encoding="utf-8").read())
+    command = payload.get("command") or ""
+    proc = subprocess.run(
+        command,
+        shell=True,
+        executable="/bin/bash",
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+    )
+    output = proc.stdout or ""
+    body = dict(payload)
+    body["output"] = output
+    body["exit_code"] = proc.returncode
+    try:
+        result = post_json("/api/v1/filter_bash", body, timeout=float(os.environ.get("RTC_FILTER_BASH_TIMEOUT", "30")))
+    except Exception:
+        sys.stdout.write(output)
+        return proc.returncode
+    if result.get("ok") and result.get("filtered_output"):
+        sys.stdout.write(str(result["filtered_output"]))
+    else:
+        sys.stdout.write(output)
+    return proc.returncode
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
+''',
+        encoding="utf-8",
+    )
+    wrapper_path.chmod(0o755)
+
+    updated = dict(tool_input)
+    updated["command"] = f"{shlex.quote(sys.executable)} {shlex.quote(str(wrapper_path))} {shlex.quote(str(payload_path))}"
+    response = {
+        "hookSpecificOutput": {
+            "hookEventName": "PreToolUse",
+            "permissionDecision": "allow",
+            "permissionDecisionReason": f"RTC wrapped whitelisted Bash command for filter category {candidate}",
+            "updatedInput": updated,
+        }
+    }
+    log("call_filter_bash", f"wrapped category={candidate} command={command[:120]!r}")
+    sys.stdout.write(json.dumps(response, ensure_ascii=False))
+    return 0
+
+
 def hook_after_turn() -> int:
     raw = sys.stdin.read()
     try:
@@ -629,7 +1084,7 @@ def build_parser() -> argparse.ArgumentParser:
     hist.set_defaults(func=command_add_history)
 
     hook = sub.add_parser("_hook", help=argparse.SUPPRESS)
-    hook.add_argument("name", choices=["compose", "add-session-message", "after-turn"])
+    hook.add_argument("name", choices=["compose", "add-session-message", "after-turn", "filter-read", "filter-bash", "filter-grep"])
     return parser
 
 
@@ -643,6 +1098,12 @@ def main(argv: list[str] | None = None) -> int:
             return hook_add_session_message()
         if args.name == "after-turn":
             return hook_after_turn()
+        if args.name == "filter-read":
+            return hook_filter_read()
+        if args.name == "filter-bash":
+            return hook_filter_bash()
+        if args.name == "filter-grep":
+            return hook_filter_grep()
     return int(args.func(args))
 
 

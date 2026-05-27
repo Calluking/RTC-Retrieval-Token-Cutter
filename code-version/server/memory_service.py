@@ -4650,10 +4650,35 @@ class MemoryService:
             plugin = get_plugin()
             for mem in memories:
                 content = mem.get("content", "")
-                if content:
-                    shortened, stats = plugin.short_llm_output(content)
-                    if stats.shortening_ratio < 0.95:
-                        mem["content"] = shortened
+                if not content:
+                    continue
+                try:
+                    max_lines = int(os.environ.get("RTC_FILTER_MEMORY_MAX_LINES") or "60")
+                except ValueError:
+                    max_lines = 60
+                shortened, stats = plugin.short_adaptive(content, max_lines=max_lines)
+                detected = stats.stage.removeprefix("adaptive_")
+                mem["detected"] = detected
+                mem["strategy"] = detected
+                metadata = mem.get("metadata")
+                if not isinstance(metadata, dict):
+                    metadata = {}
+                metadata.update({
+                    "filter_enabled": True,
+                    "filter_stage": stats.stage,
+                    "original_chars": stats.original_chars,
+                    "shortened_chars": stats.shortened_chars,
+                    "tokens_saved_estimate": stats.tokens_saved_estimate,
+                    "shortening_ratio": stats.shortening_ratio,
+                })
+                mem["metadata"] = metadata
+                if stats.shortening_ratio < 0.95:
+                    # Default natural-language writes keep L2 raw and use
+                    # filtered text for missing L0/L1 fields.
+                    mem.setdefault("abstract", shortened[:200])
+                    mem.setdefault("overview", shortened)
+                else:
+                    mem.setdefault("abstract", content[:200])
         except ImportError:
             pass
         except Exception as exc:
@@ -4665,6 +4690,377 @@ class MemoryService:
         except Exception as exc:
             logger.error("write_natural_language failed: %s", exc, exc_info=True)
             return {"ok": False, "error": str(exc)}
+
+    def filter_read(self, params: dict) -> dict:
+        """Filter a native Read target, store non-code levels, and return an L0 file.
+
+        Level contract for non-code tool output:
+        - L0 / .abstract.md: filtered content returned to the agent.
+        - L1 / .overview.md: structured properties for retrieval/routing.
+        - L2 / content.md: original unfiltered tool output.
+        """
+        ctx = params.get("_ctx") or self.build_context(params)
+        workspace_root = self._resolve_workspace_root(params)
+        raw = (params.get("file_path") or params.get("filePath") or "").strip()
+        if not raw or workspace_root is None:
+            return {"ok": False, "reason": "missing_path_or_workspace"}
+
+        target = Path(raw).expanduser()
+        target = target.resolve() if target.is_absolute() else (workspace_root / target).resolve()
+        try:
+            rel = target.relative_to(workspace_root.resolve()).as_posix()
+        except ValueError:
+            return {"ok": False, "reason": "outside_workspace"}
+        if not target.is_file():
+            return {"ok": False, "reason": "not_a_file"}
+
+        try:
+            min_chars = int(os.environ.get("RTC_FILTER_READ_MIN_CHARS") or "8000")
+        except ValueError:
+            min_chars = 8000
+        original = target.read_text(encoding="utf-8", errors="replace")
+        if len(original) < min_chars:
+            return {"ok": False, "reason": "below_min_chars", "original_chars": len(original)}
+
+        try:
+            from filter.config import filter_enabled
+            if not filter_enabled():
+                return {"ok": False, "reason": "filter_disabled"}
+            from filter import get_plugin
+        except ImportError:
+            return {"ok": False, "reason": "filter_unavailable"}
+
+        try:
+            max_lines = int(os.environ.get("RTC_FILTER_READ_MAX_LINES") or os.environ.get("RTC_FILTER_MEMORY_MAX_LINES") or "60")
+        except ValueError:
+            max_lines = 60
+        plugin = get_plugin()
+        filtered, stats = plugin.short_adaptive(original, max_lines=max_lines)
+        if filtered == original:
+            return {"ok": False, "reason": "unchanged", "original_chars": len(original)}
+
+        detected = stats.stage.removeprefix("adaptive_")
+        original_lines = len(original.splitlines())
+        filtered_lines = len(filtered.splitlines())
+        digest = hashlib.sha256(f"{target}\0{original}".encode("utf-8", errors="replace")).hexdigest()
+        routing_key = f"tool_output_read_{digest[:16]}"
+        properties = "\n".join([
+            "source: pre_tool_use",
+            "tool_name: Read",
+            f"file_path: {target}",
+            f"workspace_relative_path: {rel}",
+            f"detected: {detected}",
+            f"strategy: {detected}",
+            f"filter_stage: {stats.stage}",
+            f"original_chars: {stats.original_chars}",
+            f"filtered_chars: {stats.shortened_chars}",
+            f"original_lines: {original_lines}",
+            f"filtered_lines: {filtered_lines}",
+            f"tokens_saved_estimate: {stats.tokens_saved_estimate}",
+        ])
+
+        memory_result = self.write_natural_language({
+            **params,
+            "memories": [{
+                "type": "l1",
+                "role": "tool",
+                "source": "pre_tool_use",
+                "tool_name": "Read",
+                "file_path": str(target),
+                "category": "tool_outputs",
+                "owner_scope": "agent",
+                "routing_key": routing_key,
+                "abstract": filtered,
+                "overview": properties,
+                "content": original,
+                "detected": detected,
+                "strategy": detected,
+                "confidence": 0.8,
+                "metadata": {
+                    "filter_enabled": True,
+                    "filter_stage": stats.stage,
+                    "original_chars": stats.original_chars,
+                    "shortened_chars": stats.shortened_chars,
+                    "tokens_saved_estimate": stats.tokens_saved_estimate,
+                    "shortening_ratio": stats.shortening_ratio,
+                    "original_lines": original_lines,
+                    "filtered_lines": filtered_lines,
+                },
+            }],
+        })
+
+        memory_uri = ""
+        if isinstance(memory_result, dict):
+            writes = memory_result.get("writes") or []
+            if writes and isinstance(writes[0], dict):
+                memory_uri = str(writes[0].get("target_uri") or "")
+
+        banner = "\n".join([
+            "### FILTER IS TRIGGERED",
+            "This tool output was shortened before it reached you.",
+            "If useful information appears missing, call `get_original_tool_output` with:",
+            f"`memory_uri`: `{memory_uri}`",
+            "",
+        ])
+        filtered_for_agent = banner + filtered.rstrip() + "\n"
+
+        runtime_dir = Path(os.environ.get("RTC_RUNTIME_DIR") or ".").expanduser().resolve()
+        out_dir = runtime_dir / "filtered-read"
+        out_dir.mkdir(parents=True, exist_ok=True)
+        out_path = out_dir / f"{target.name}.{digest[:16]}.l0.txt"
+        out_path.write_text(filtered_for_agent, encoding="utf-8")
+
+        return {
+            "ok": True,
+            "filtered_file_path": str(out_path),
+            "memory_uri": memory_uri,
+            "detected": detected,
+            "strategy": detected,
+            "original_chars": stats.original_chars,
+            "filtered_chars": len(filtered_for_agent),
+            "original_lines": original_lines,
+            "filtered_lines": len(filtered_for_agent.splitlines()),
+        }
+
+    def read_tool_output_original(self, params: dict) -> dict:
+        """Return the L2 original for a filtered tool-output memory node."""
+        ctx = params.get("_ctx") or self.build_context(params)
+        memory_uri = str(
+            params.get("memory_uri")
+            or params.get("target_uri")
+            or params.get("uri")
+            or ""
+        ).strip()
+        if not memory_uri:
+            return {"ok": False, "error": "memory_uri is required"}
+        if "/memories/tool_outputs/" not in memory_uri:
+            return {"ok": False, "error": "memory_uri is not a tool_outputs node"}
+
+        read_api = self.get_read_api()
+        if read_api is None:
+            return {"ok": False, "error": "read_api_unavailable"}
+
+        block = read_api.read_memory(memory_uri, ctx)
+        original = block.content_excerpt or ""
+        if block.category and block.category != "tool_outputs":
+            return {"ok": False, "error": f"memory category is {block.category}, not tool_outputs"}
+        if not original:
+            return {"ok": False, "error": "original output not found", "memory_uri": memory_uri}
+
+        try:
+            max_chars = int(params.get("max_chars") or 0)
+        except (TypeError, ValueError):
+            max_chars = 0
+        truncated = False
+        returned = original
+        if max_chars > 0 and len(original) > max_chars:
+            head = max_chars // 2
+            tail = max_chars - head
+            omitted = len(original) - head - tail
+            returned = (
+                original[:head]
+                + f"\n\n... [original output clipped: {omitted} chars omitted] ...\n\n"
+                + original[-tail:]
+            )
+            truncated = True
+
+        return {
+            "ok": True,
+            "memory_uri": memory_uri,
+            "original": returned,
+            "original_chars": len(original),
+            "returned_chars": len(returned),
+            "truncated": truncated,
+        }
+
+    @staticmethod
+    def _classify_bash_output(command: str, output: str, pre_category: str) -> str:
+        lower = (command or "").lower()
+        if pre_category == "test_runner":
+            return "test_runner"
+        if pre_category == "diff":
+            return "diff"
+        if pre_category == "diff_maybe":
+            if re.search(r"^diff --git a/", output, re.MULTILINE) or re.search(
+                r"^@@\s+-\d+(?:,\d+)?\s+\+\d+(?:,\d+)?\s+@@", output, re.MULTILINE
+            ):
+                return "diff"
+            return ""
+        if pre_category == "python_maybe":
+            if re.search(r"Traceback \(most recent call last\)|\b\w*(Error|Exception):", output):
+                return "python_error"
+            return ""
+        if re.search(r"(^|[\s;&|()])git\s+diff\b", lower):
+            return "diff"
+        return ""
+
+    @staticmethod
+    def _shorten_bash_output(command: str, output: str, category: str) -> tuple[str, str]:
+        if category == "test_runner":
+            from filter.adapters.strategies.test_runner import TestRunnerStrategy
+
+            result = TestRunnerStrategy().shorten(output, {
+                "noise_lines": [
+                    r"^plugins: ",
+                    r"^collecting \.\.\.",
+                    r"^cachedir:",
+                    r"^rootdir:",
+                    r"^platform ",
+                    r"^Creating test database",
+                    r"^Cloning test database",
+                    r"^Destroying test database",
+                    r"^Synchronizing apps without migrations",
+                    r"^Operations to perform",
+                    r"^\s+Apply all migrations",
+                    r"^\s+Synchronize unmigrated apps",
+                    r"^Importing application ",
+                    r"^Skipping setup of unused database",
+                ],
+            })
+            if result.text != output:
+                return result.text, "bash_test_runner"
+            from filter import get_plugin
+
+            try:
+                max_lines = int(os.environ.get("RTC_FILTER_BASH_MAX_LINES") or os.environ.get("RTC_FILTER_MEMORY_MAX_LINES") or "80")
+            except ValueError:
+                max_lines = 80
+            plugin = get_plugin()
+            filtered, stats = plugin.short_adaptive(output, max_lines=max_lines)
+            return filtered, f"bash_test_runner_{stats.stage}"
+        if category == "diff":
+            from filter.adapters.strategies.diff_hunk import DiffHunkStrategy
+
+            result = DiffHunkStrategy().shorten(output, {"context_window": 3})
+            return result.text, "bash_diff"
+        if category == "python_error":
+            from filter import get_plugin
+
+            try:
+                max_lines = int(os.environ.get("RTC_FILTER_BASH_MAX_LINES") or os.environ.get("RTC_FILTER_MEMORY_MAX_LINES") or "80")
+            except ValueError:
+                max_lines = 80
+            plugin = get_plugin()
+            filtered, stats = plugin.short_adaptive(output, max_lines=max_lines)
+            return filtered, stats.stage
+        return output, "bash_unknown"
+
+    def filter_bash(self, params: dict) -> dict:
+        """Filter whitelisted native Bash output and store L0/L1/L2 tool output."""
+        ctx = params.get("_ctx") or self.build_context(params)
+        command = str(params.get("command") or "").strip()
+        output = str(params.get("output") or "")
+        pre_category = str(params.get("pre_category") or "").strip()
+        if not command or not output:
+            return {"ok": False, "reason": "missing_command_or_output"}
+
+        try:
+            min_chars = int(os.environ.get("RTC_FILTER_BASH_MIN_CHARS") or "8000")
+        except ValueError:
+            min_chars = 8000
+        try:
+            min_lines = int(os.environ.get("RTC_FILTER_BASH_MIN_LINES") or "100")
+        except ValueError:
+            min_lines = 100
+        original_lines = len(output.splitlines())
+        if len(output) < min_chars and original_lines < min_lines:
+            return {
+                "ok": False,
+                "reason": "below_min_size",
+                "original_chars": len(output),
+                "original_lines": original_lines,
+            }
+
+        try:
+            from filter.config import filter_enabled
+            if not filter_enabled():
+                return {"ok": False, "reason": "filter_disabled"}
+        except ImportError:
+            return {"ok": False, "reason": "filter_unavailable"}
+
+        category = self._classify_bash_output(command, output, pre_category)
+        if category not in {"test_runner", "python_error", "diff"}:
+            return {"ok": False, "reason": "not_whitelisted", "category": category or pre_category}
+
+        filtered, strategy = self._shorten_bash_output(command, output, category)
+        if not filtered or filtered == output:
+            return {"ok": False, "reason": "unchanged", "category": category}
+
+        filtered_lines = len(filtered.splitlines())
+        digest = hashlib.sha256(f"{command}\0{output}".encode("utf-8", errors="replace")).hexdigest()
+        routing_key = f"tool_output_bash_{digest[:16]}"
+        exit_code = params.get("exit_code")
+        properties = "\n".join([
+            "source: pre_tool_use",
+            "tool_name: Bash",
+            f"command: {command}",
+            f"category: {category}",
+            f"strategy: {strategy}",
+            f"exit_code: {exit_code}",
+            f"original_chars: {len(output)}",
+            f"filtered_chars: {len(filtered)}",
+            f"original_lines: {original_lines}",
+            f"filtered_lines: {filtered_lines}",
+            f"tokens_saved_estimate: {max(0, len(output) - len(filtered)) // 4}",
+        ])
+        memory_result = self.write_natural_language({
+            **params,
+            "memories": [{
+                "type": "l1",
+                "role": "tool",
+                "source": "pre_tool_use",
+                "tool_name": "Bash",
+                "category": "tool_outputs",
+                "owner_scope": "agent",
+                "routing_key": routing_key,
+                "abstract": filtered,
+                "overview": properties,
+                "content": output,
+                "detected": category,
+                "strategy": strategy,
+                "confidence": 0.8,
+                "metadata": {
+                    "filter_enabled": True,
+                    "filter_stage": strategy,
+                    "command": command,
+                    "bash_category": category,
+                    "exit_code": exit_code,
+                    "original_chars": len(output),
+                    "shortened_chars": len(filtered),
+                    "tokens_saved_estimate": max(0, len(output) - len(filtered)) // 4,
+                    "shortening_ratio": len(filtered) / len(output) if output else 1.0,
+                    "original_lines": original_lines,
+                    "filtered_lines": filtered_lines,
+                },
+            }],
+        })
+
+        memory_uri = ""
+        if isinstance(memory_result, dict):
+            writes = memory_result.get("writes") or []
+            if writes and isinstance(writes[0], dict):
+                memory_uri = str(writes[0].get("target_uri") or "")
+
+        banner = "\n".join([
+            "### FILTER IS TRIGGERED",
+            "This Bash output was shortened before it reached you.",
+            "If useful information appears missing, call `get_original_tool_output` with:",
+            f"`memory_uri`: `{memory_uri}`",
+            f"`category`: `{category}`",
+            "",
+        ])
+        filtered_output = banner + filtered.rstrip() + "\n"
+        return {
+            "ok": True,
+            "filtered_output": filtered_output,
+            "memory_uri": memory_uri,
+            "category": category,
+            "strategy": strategy,
+            "original_chars": len(output),
+            "filtered_chars": len(filtered_output),
+            "original_lines": original_lines,
+            "filtered_lines": len(filtered_output.splitlines()),
+        }
 
     def search_memory(self, params: dict) -> dict:
         """Search long-term natural-language memory for L0/L1 entries."""

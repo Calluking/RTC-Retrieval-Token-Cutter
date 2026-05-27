@@ -50,11 +50,16 @@ _CODE_PATTERNS = [
 ]
 
 _LOG_PATTERNS = [
-    re.compile(r"^\d{4}-\d{2}-\d{2}[\sT]", re.MULTILINE),  # ISO date format
+    re.compile(r"^(?:\s*\d+\s+)?\d{4}-\d{2}-\d{2}[\sT]", re.MULTILINE),  # ISO date, optionally Read-numbered
     re.compile(r"^\[\s*(DEBUG|INFO|WARN|ERROR|FATAL)", re.MULTILINE),
     re.compile(r"\b(log|print|echo|printf|console\.log)\s*\(", re.IGNORECASE),
     re.compile(r"^\s*at\s+[\w.$]+\([^)]*\)\s*$", re.MULTILINE),  # Stack trace lines
 ]
+
+_LOG_LINE_PREFIX_PATTERN = re.compile(
+    r"^\s*(?:\d+\s+)?\d{4}-\d{2}-\d{2}[\sT].*\b(DEBUG|INFO|WARN|WARNING|ERROR|FATAL|TRACE)\b",
+    re.MULTILINE,
+)
 
 _ERROR_PATTERNS = [
     re.compile(r"\b(ERROR|Error|error|SEVERE|FATAL|Exception|Failed)", re.IGNORECASE),
@@ -97,7 +102,8 @@ def detect_content_type(text: str) -> ContentType:
 
     # Check for log patterns
     log_matches = sum(1 for p in _LOG_PATTERNS if p.search(first_lines))
-    if log_matches >= 2:
+    log_line_matches = len(_LOG_LINE_PREFIX_PATTERN.findall(first_lines))
+    if log_matches >= 2 or log_line_matches >= 3:
         return ContentType.LOG
 
     # Check for memory/archive patterns
@@ -130,7 +136,10 @@ def get_shorter_for_type(content_type: ContentType, max_lines: int | None = None
     shorter = shorter_factory()
 
     if max_lines is not None:
-        shorter.truncate_max_lines = max_lines
+        if content_type in (ContentType.LOG, ContentType.ERROR):
+            shorter.summarize_max_lines = max_lines
+        else:
+            shorter.truncate_max_lines = max_lines
 
     return shorter
 

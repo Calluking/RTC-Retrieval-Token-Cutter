@@ -27,6 +27,36 @@ def _plugin_root() -> Path:
     return Path(__file__).resolve().parents[1]
 
 
+def _extend_runtime_pythonpath() -> None:
+    plugin = _plugin_root()
+    candidates = [
+        plugin.parent,
+        plugin.parent / "rtc-runtime",
+    ]
+    for env_name in ("RTC_DIR",):
+        raw = os.environ.get(env_name)
+        if raw:
+            candidates.append(Path(raw).expanduser())
+    runtime_raw = os.environ.get("RTC_RUNTIME_DIR")
+    if runtime_raw:
+        runtime = Path(runtime_raw).expanduser()
+        candidates.extend([runtime, runtime / "rtc-runtime"])
+
+    for candidate in candidates:
+        try:
+            resolved = candidate.resolve()
+        except Exception:
+            continue
+        if not resolved.exists():
+            continue
+        path = str(resolved)
+        if path not in sys.path:
+            sys.path.insert(0, path)
+
+
+_extend_runtime_pythonpath()
+
+
 def _backend_healthy() -> bool:
     url = (os.environ.get("RTC_URL") or "http://127.0.0.1:8090").rstrip("/") + "/api/v1/health"
     try:
@@ -127,6 +157,15 @@ def _resolve_workspace_path(workspace_root: str, file_path: str) -> Path:
     target = Path(file_path).expanduser()
     target = target if target.is_absolute() else (root / target)
     target = target.resolve()
+    active_raw = os.environ.get("RTC_WORKSPACE_ROOT", "") or os.environ.get("CLAUDE_PROJECT_DIR", "")
+    if active_raw:
+        active_root = Path(active_raw).expanduser().resolve()
+        active_target = Path(file_path).expanduser()
+        active_target = active_target if active_target.is_absolute() else (active_root / active_target)
+        active_target = active_target.resolve()
+        if not target.exists() and active_target.exists():
+            root = active_root
+            target = active_target
     target.relative_to(root)
     return target
 
@@ -232,6 +271,99 @@ def search_code(
     )
     result = post_json("/api/v1/call/code_semantic_search", body)
     return _format_search_snippets(result)
+
+
+@app.tool(
+    description="""\
+Read a workspace file through the filter before returning it.
+
+Use this for long logs, command output captures, traces, and other non-code
+text where native Read would return too much raw content. The tool validates
+the path under the workspace root, detects the content type, and shortens logs
+while preserving error/warning lines and the tail.
+""",
+)
+def read_filtered(
+    file_path: Annotated[str, "Absolute or workspace-relative file path to read."],
+    workspace_root: Annotated[str, "Workspace root used to validate the target path. Leave empty to use RTC_WORKSPACE_ROOT, then Claude's launch/project directory."] = "",
+    max_lines: Annotated[int, "Approximate output line budget after filtering."] = 60,
+) -> str:
+    root = _workspace_root_arg(workspace_root) or str(Path.cwd())
+    target = _resolve_workspace_path(root, file_path)
+    if not target.exists():
+        raise FileNotFoundError(f"Target file not found: {target}")
+    if not target.is_file():
+        raise IsADirectoryError(f"Target is not a file: {target}")
+
+    original = target.read_text(encoding="utf-8", errors="replace")
+    filtered = original
+    detected = "unknown"
+    filter_active = False
+
+    try:
+        from filter.config import filter_enabled
+        if filter_enabled():
+            from filter import get_plugin
+
+            plugin = get_plugin()
+            filtered, stats = plugin.short_adaptive(original, max_lines=max_lines)
+            detected = stats.stage.removeprefix("adaptive_")
+            filter_active = True
+        else:
+            detected = "disabled"
+    except Exception as exc:
+        detected = f"failed:{type(exc).__name__}"
+        filtered = original
+
+    root_path = Path(root).expanduser().resolve()
+    relative_path = target.relative_to(root_path).as_posix()
+    original_lines = len(original.splitlines())
+    filtered_lines = len(filtered.splitlines())
+    original_chars = len(original)
+    filtered_chars = len(filtered)
+
+    header = "\n".join(
+        [
+            f"# read_filtered: {relative_path}",
+            f"# filter: {'enabled' if filter_active else 'disabled'}",
+            f"# detected: {detected}",
+            f"# chars: {original_chars} -> {filtered_chars}",
+            f"# lines: {original_lines} -> {filtered_lines}",
+            "",
+        ]
+    )
+    return header + filtered.rstrip() + "\n"
+
+
+@app.tool(
+    description="""\
+Return the original unfiltered output for a filtered tool result.
+
+Use this when a tool result begins with `FILTER IS TRIGGERED` and the shortened
+output appears to be missing information needed to continue. Pass the
+`memory_uri` shown in the filtered output banner.
+""",
+)
+def get_original_tool_output(
+    memory_uri: Annotated[str, "The ctx://.../memories/tool_outputs/... URI shown in the filtered output banner."],
+    max_chars: Annotated[int, "Maximum characters to return. Use 0 for the full original output."] = 20000,
+) -> str:
+    body = identity_fields({
+        "memory_uri": memory_uri,
+        "max_chars": max_chars,
+    })
+    result = post_json("/api/v1/tool_output_original", body)
+    if not result.get("ok"):
+        return json.dumps(result, indent=2)
+
+    original = str(result.get("original") or "")
+    header = "\n".join([
+        f"# original tool output: {result.get('memory_uri') or memory_uri}",
+        f"# chars: {result.get('returned_chars', len(original))} / {result.get('original_chars', len(original))}",
+        f"# truncated: {bool(result.get('truncated'))}",
+        "",
+    ])
+    return header + original.rstrip() + "\n"
 
 
 @app.tool(

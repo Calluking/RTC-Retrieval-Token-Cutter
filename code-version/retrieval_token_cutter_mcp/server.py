@@ -42,6 +42,15 @@ def _resolve_workspace_path(workspace_root: str, file_path: str) -> Path:
     target = Path(file_path).expanduser()
     target = target if target.is_absolute() else (root / target)
     target = target.resolve()
+    active_raw = os.environ.get("RTC_WORKSPACE_ROOT", "") or os.environ.get("CLAUDE_PROJECT_DIR", "")
+    if active_raw:
+        active_root = Path(active_raw).expanduser().resolve()
+        active_target = Path(file_path).expanduser()
+        active_target = active_target if active_target.is_absolute() else (active_root / active_target)
+        active_target = active_target.resolve()
+        if not target.exists() and active_target.exists():
+            root = active_root
+            target = active_target
     target.relative_to(root)
     return target
 

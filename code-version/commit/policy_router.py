@@ -22,6 +22,7 @@ from commit.merge_policies import (
     SkillToolPolicy,
     CodeChunkPolicy,
     NaturalLanguageMemoryPolicy,
+    ToolOutputPolicy,
 )
 
 logger = getLogger(__name__)
@@ -63,6 +64,7 @@ class PolicyRouter:
         self._skill_tool_policy: Optional[SkillToolPolicy] = None
         self._code_chunk_policy: Optional[CodeChunkPolicy] = None
         self._natural_language_memory_policy: Optional[NaturalLanguageMemoryPolicy] = None
+        self._tool_output_policy: Optional[ToolOutputPolicy] = None
 
         # Custom policy overrides (category → MergePolicy)
         self._custom_policies: dict[str, MergePolicy] = {}
@@ -94,6 +96,9 @@ class PolicyRouter:
 
         if candidate.category == "natural_language":
             return self._get_natural_language_memory_policy()
+
+        if candidate.category == "tool_outputs":
+            return self._get_tool_output_policy()
 
         # Look up schema
         schema = self._registry.get(candidate.category)
@@ -188,6 +193,12 @@ class PolicyRouter:
                 self._fs, self._uri_resolver
             )
         return self._natural_language_memory_policy
+
+    def _get_tool_output_policy(self) -> ToolOutputPolicy:
+        """Get or create ToolOutputPolicy instance."""
+        if self._tool_output_policy is None:
+            self._tool_output_policy = ToolOutputPolicy(self._fs)
+        return self._tool_output_policy
 
     def plan(self, candidate: CandidateMemory, ctx: RequestContext) -> WritePlan:
         """Generate WritePlan using the appropriate policy.

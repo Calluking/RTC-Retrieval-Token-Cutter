@@ -273,6 +273,48 @@ def handle_write_natural_language():
         return _error_response(exc)
 
 
+@app.route("/api/v1/filter_read", methods=["POST"])
+def handle_filter_read():
+    """Filter a native Read target server-side and return an L0 temp file."""
+    params = request.get_json(force=True, silent=True) or {}
+    try:
+        ctx = _build_authenticated_context(params)
+        params["_ctx"] = ctx
+        result = _get_service().filter_read(params)
+        return jsonify(result)
+    except Exception as exc:
+        logger.error("filter_read failed: %s", exc, exc_info=True)
+        return _error_response(exc)
+
+
+@app.route("/api/v1/filter_bash", methods=["POST"])
+def handle_filter_bash():
+    """Filter whitelisted native Bash output server-side."""
+    params = request.get_json(force=True, silent=True) or {}
+    try:
+        ctx = _build_authenticated_context(params)
+        params["_ctx"] = ctx
+        result = _get_service().filter_bash(params)
+        return jsonify(result)
+    except Exception as exc:
+        logger.error("filter_bash failed: %s", exc, exc_info=True)
+        return _error_response(exc)
+
+
+@app.route("/api/v1/tool_output_original", methods=["POST"])
+def handle_tool_output_original():
+    """Return the stored L2 original for a filtered tool output."""
+    params = request.get_json(force=True, silent=True) or {}
+    try:
+        ctx = _build_authenticated_context(params)
+        params["_ctx"] = ctx
+        result = _get_service().read_tool_output_original(params)
+        return jsonify(result)
+    except Exception as exc:
+        logger.error("tool_output_original failed: %s", exc, exc_info=True)
+        return _error_response(exc)
+
+
 @app.route("/api/v1/bootstrap", methods=["POST"])
 def handle_bootstrap():
     params = request.get_json(force=True, silent=True) or {}

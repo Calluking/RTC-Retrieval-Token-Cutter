@@ -299,7 +299,11 @@ class SkillToolPolicy(MergePolicy):
 
 
 class CodeChunkPolicy(MergePolicy):
-    """Merge policy for code chunks with canonical latest + version history."""
+    """Merge policy for code chunks.
+
+    Code refresh deletes stale code memories before re-ingesting a file, so this
+    policy intentionally avoids doing update/version-history work itself.
+    """
 
     def __init__(self, fs: ContextFS):
         self._fs = fs
@@ -364,44 +368,10 @@ class CodeChunkPolicy(MergePolicy):
                 relation_edges=[],
             )
 
-        existing_node = self._fs.read_node(target_uri, ctx)
-        current_version = existing_node.metadata.get("version", 0)
-        existing_hash = (
-            existing_node.metadata.get("chunk_hash")
-            or hashlib.sha256(existing_node.content.encode("utf-8")).hexdigest()
-        )
-
-        if existing_hash == chunk_hash:
-            if existing_node.abstract != candidate.abstract or existing_node.overview != candidate.overview:
-                return WritePlan(
-                    action="merge",
-                    target_uri=target_uri,
-                    merged_fields={
-                        "expected_version": current_version,
-                        "code_identity": self._build_identity(candidate),
-                        "chunk_hash": chunk_hash,
-                    },
-                    relation_edges=[],
-                )
-            return WritePlan(
-                action="skip",
-                target_uri=target_uri,
-                merged_fields={},
-                relation_edges=[],
-            )
-
-        snapshot_version = int(current_version) if isinstance(current_version, int) else 0
-        snapshot_id = datetime.now(UTC).strftime("%Y%m%dT%H%M%S")
-        snapshot_uri = f"{target_uri}/_history/v{snapshot_version}_{snapshot_id}"
         return WritePlan(
-            action="merge",
+            action="skip",
             target_uri=target_uri,
-            merged_fields={
-                "expected_version": current_version,
-                "code_identity": self._build_identity(candidate),
-                "chunk_hash": chunk_hash,
-                "latest_snapshot_uri": snapshot_uri,
-            },
+            merged_fields={},
             relation_edges=[],
         )
 
@@ -437,6 +407,49 @@ class NaturalLanguageMemoryPolicy(MergePolicy):
                     "overview_append": candidate.overview,
                     "existing_content": existing_node.content,
                     "content_append": candidate.content,
+                    "expected_version": current_version,
+                },
+                relation_edges=[],
+            )
+
+        return WritePlan(
+            action="create",
+            target_uri=target_uri,
+            merged_fields={},
+            relation_edges=[],
+        )
+
+
+class ToolOutputPolicy(MergePolicy):
+    """Merge policy for filtered tool outputs owned by the agent."""
+
+    def __init__(self, fs: ContextFS):
+        self._fs = fs
+
+    def plan(self, candidate: CandidateMemory, ctx: RequestContext) -> WritePlan:
+        routing_key = candidate.routing_key or "default"
+        if routing_key == "default":
+            timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S")
+            unique_id = uuid_lib.uuid4().hex[:8]
+            normalized_key = f"{timestamp}_{unique_id}"
+        else:
+            normalized_key = normalize_routing_key(routing_key, "tool_outputs")
+
+        target_uri = (
+            f"ctx://{ctx.account_id}/agents/{ctx.agent_id}/memories/"
+            f"tool_outputs/{normalized_key}"
+        )
+
+        if self._fs.exists(target_uri, ctx):
+            existing_node = self._fs.read_node(target_uri, ctx)
+            current_version = existing_node.metadata.get("version", 0)
+            return WritePlan(
+                action="merge",
+                target_uri=target_uri,
+                merged_fields={
+                    "abstract": candidate.abstract,
+                    "overview": candidate.overview,
+                    "content": candidate.content,
                     "expected_version": current_version,
                 },
                 relation_edges=[],

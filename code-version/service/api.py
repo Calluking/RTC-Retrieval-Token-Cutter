@@ -631,7 +631,7 @@ class MemoryWriteAPI:
         memories: list[dict],
         ctx: RequestContext,
     ) -> list[dict]:
-        """Write filtered natural-language memory entries.
+        """Write prepared non-code memory entries.
 
         Accepts already prepared content and routes it through the normal
         write pipeline. Entries can provide properties directly, or have
@@ -649,29 +649,39 @@ class MemoryWriteAPI:
             mem_type = mem.get("type", "l0")
             role = mem.get("role", "user")
             raw_content = mem.get("content", "")
-            category = "natural_language"
+            category = mem.get("category") or "natural_language"
 
-            abstract = raw_content[:200] if raw_content else ""
+            abstract = mem.get("abstract") or (raw_content[:200] if raw_content else "")
 
-            overview = ""
+            overview = mem.get("overview") or ""
             if mem_type == "l1":
                 provided_props = mem.get("properties", "")
-                if provided_props:
+                if overview:
+                    pass
+                elif provided_props:
                     overview = provided_props
                 elif role == "user" and extract_user_prompt_keywords:
                     overview = extract_user_prompt_keywords(raw_content)
                 elif role == "assistant" and extract_response_keywords:
                     overview = extract_response_keywords(raw_content)
 
+            metadata = mem.get("metadata")
+            if not isinstance(metadata, dict):
+                metadata = {}
+            for key in ("source", "tool_name", "file_path", "detected", "strategy"):
+                value = mem.get(key)
+                if value:
+                    metadata[key] = value
+
             candidates.append(CandidateMemory(
                 category=category,
-                owner_scope="user",
+                owner_scope=mem.get("owner_scope") or ("agent" if category == "tool_outputs" else "user"),
                 routing_key=mem.get("routing_key", "default"),
                 abstract=abstract,
                 overview=overview,
                 content=raw_content,
                 confidence=mem.get("confidence", 0.8),
-                code_metadata=None,
+                code_metadata=metadata or None,
             ))
 
         deduplicated = self._pipeline.deduplicate(candidates)

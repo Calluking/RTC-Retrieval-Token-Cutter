@@ -153,13 +153,13 @@ def make_code_shorter(max_lines: int = 80) -> PipelineShorter:
 
 
 def make_log_shorter(max_lines: int = 100) -> PipelineShorter:
-    """Shorter for log output — head + tail + dedup."""
+    """Shorter for log output — head + errors/warnings + tail."""
     return PipelineShorter(
         filter_stage=None,  # Don't strip comments in logs
         dedup_enabled=True,
-        truncate_max_lines=max_lines,
-        truncate_tail=20,
-        summarize_enabled=False,
+        truncate_max_lines=None,
+        summarize_enabled=True,
+        summarize_max_lines=max_lines,
     )
 
 
