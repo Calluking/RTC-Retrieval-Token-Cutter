@@ -259,6 +259,20 @@ def handle_prepare_compaction():
         return _error_response(exc)
 
 
+@app.route("/api/v1/write_natural_language", methods=["POST"])
+def handle_write_natural_language():
+    """Write filtered natural-language memory entries."""
+    params = request.get_json(force=True, silent=True) or {}
+    try:
+        ctx = _build_authenticated_context(params)
+        params["_ctx"] = ctx
+        result = _get_service().write_natural_language(params)
+        return jsonify(result)
+    except Exception as exc:
+        logger.error("write_natural_language failed: %s", exc, exc_info=True)
+        return _error_response(exc)
+
+
 @app.route("/api/v1/bootstrap", methods=["POST"])
 def handle_bootstrap():
     params = request.get_json(force=True, silent=True) or {}

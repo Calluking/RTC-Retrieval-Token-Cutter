@@ -626,6 +626,66 @@ class MemoryWriteAPI:
         slug = cls._code_memory_slug(chunk)
         return f"ctx://{ctx.account_id}/{owner_type}/{owner_id}/memories/code/{slug}"
 
+    def write_natural_language(
+        self,
+        memories: list[dict],
+        ctx: RequestContext,
+    ) -> list[dict]:
+        """Write filtered natural-language memory entries.
+
+        Accepts already prepared content and routes it through the normal
+        write pipeline. Entries can provide properties directly, or have
+        them extracted from the content when possible.
+        """
+        try:
+            from filter.handlers.keywords import extract_user_prompt_keywords
+            from filter.handlers.response_keywords import extract_response_keywords
+        except ImportError:
+            extract_user_prompt_keywords = None
+            extract_response_keywords = None
+
+        candidates: list[CandidateMemory] = []
+        for mem in memories:
+            mem_type = mem.get("type", "l0")
+            role = mem.get("role", "user")
+            raw_content = mem.get("content", "")
+            category = "natural_language"
+
+            abstract = raw_content[:200] if raw_content else ""
+
+            overview = ""
+            if mem_type == "l1":
+                provided_props = mem.get("properties", "")
+                if provided_props:
+                    overview = provided_props
+                elif role == "user" and extract_user_prompt_keywords:
+                    overview = extract_user_prompt_keywords(raw_content)
+                elif role == "assistant" and extract_response_keywords:
+                    overview = extract_response_keywords(raw_content)
+
+            candidates.append(CandidateMemory(
+                category=category,
+                owner_scope="user",
+                routing_key=mem.get("routing_key", "default"),
+                abstract=abstract,
+                overview=overview,
+                content=raw_content,
+                confidence=mem.get("confidence", 0.8),
+                code_metadata=None,
+            ))
+
+        deduplicated = self._pipeline.deduplicate(candidates)
+        plans = self._writer.write_candidates(deduplicated, ctx)
+
+        return [
+            {
+                "action": p.action,
+                "target_uri": p.target_uri,
+                "merged_fields": p.merged_fields,
+            }
+            for p in plans
+        ]
+
     @staticmethod
     def _agfs_directory_for_uri(uri: str) -> str:
         if not uri.startswith("ctx://"):

@@ -3219,9 +3219,35 @@ class MemoryService:
 
         working_set = []
         try:
-            working_set = self._search_working_set(query, ctx)
+            try:
+                from filter.config import filter_enabled
+                if not filter_enabled():
+                    raise ImportError("filter disabled")
+                from filter import get_plugin
+                plugin = get_plugin()
+                query, _ = plugin.short_query(query)
+            except Exception:
+                pass  # Filter failure should not block search
         except Exception as exc:
             logger.warning("assemble working set search failed: %s", exc)
+            working_set = []
+        else:
+            try:
+                working_set = self._search_working_set(query, ctx)
+            except Exception as exc:
+                logger.warning("assemble working set search failed: %s", exc)
+                working_set = []
+            else:
+                if working_set:
+                    try:
+                        from filter.config import filter_enabled
+                        if not filter_enabled():
+                            raise ImportError("filter disabled")
+                        from filter import get_plugin
+                        plugin = get_plugin()
+                        working_set = plugin.short_retrieved_blocks(working_set)
+                    except Exception:
+                        pass  # Filter failure should not block formatting
 
         # Each step degrades independently — a failure in one doesn't kill the rest
 
@@ -3556,6 +3582,32 @@ class MemoryService:
         archive_snapshot = list(incremental)
         archive_snapshot_ids = {m.id for m in archive_snapshot}
         extraction_messages = extraction_state["messages"]
+
+        if extraction_messages:
+            try:
+                from filter.config import filter_enabled
+                if not filter_enabled():
+                    raise ImportError("filter disabled")
+                from filter import get_plugin
+                plugin = get_plugin()
+                shortened = plugin.short_session_messages(
+                    extraction_messages, mode="generic", max_lines=60
+                )
+                original_len = sum(len(m.get("content", "") or "") for m in extraction_messages)
+                shortened_len = sum(len(m.get("content", "") or "") for m in shortened)
+                if shortened_len < original_len * 0.95:
+                    extraction_messages = shortened
+                    logger.info(
+                        "after_turn filter shortening: %d -> %d chars (%.1f%%)",
+                        original_len,
+                        shortened_len,
+                        shortened_len / original_len * 100 if original_len > 0 else 100,
+                    )
+            except ImportError:
+                pass
+            except Exception as exc:
+                logger.warning("after_turn filter shortening failed: %s", exc)
+
         logger.info(
             "after_turn extraction scheduled: run=%s session=%s "
             "pending_tokens=%d buffer_len=%d watermark=%d incremental=%d "
@@ -4578,6 +4630,107 @@ class MemoryService:
         if ingest_out is None:
             return {"ok": False, "error": "write_api_unavailable", "edit_search": edit_search}
         return {**ingest_out, "edit_search": edit_search}
+
+    def write_natural_language(self, params: dict) -> dict:
+        """Write prepared filtered natural-language memory entries."""
+        ctx = params.get("_ctx") or self.build_context(params)
+        memories = params.get("memories", [])
+        if not memories:
+            return {"ok": False, "error": "no memories provided"}
+
+        write_api = self.get_write_api()
+        if write_api is None:
+            return {"ok": False, "error": "write_api_unavailable"}
+
+        try:
+            from filter.config import filter_enabled
+            if not filter_enabled():
+                raise ImportError("filter disabled")
+            from filter import get_plugin
+            plugin = get_plugin()
+            for mem in memories:
+                content = mem.get("content", "")
+                if content:
+                    shortened, stats = plugin.short_llm_output(content)
+                    if stats.shortening_ratio < 0.95:
+                        mem["content"] = shortened
+        except ImportError:
+            pass
+        except Exception as exc:
+            logger.warning("write_natural_language filter shortening failed: %s", exc)
+
+        try:
+            results = write_api.write_natural_language(memories, ctx)
+            return {"ok": True, "writes": results}
+        except Exception as exc:
+            logger.error("write_natural_language failed: %s", exc, exc_info=True)
+            return {"ok": False, "error": str(exc)}
+
+    def search_memory(self, params: dict) -> dict:
+        """Search long-term natural-language memory for L0/L1 entries."""
+        ctx = params.get("_ctx") or self.build_context(params)
+        query = params.get("query", "")
+        limit = min(int(params.get("limit", 10)), 50)
+        categories_param = params.get("categories")
+
+        if not query:
+            return {"ok": False, "error": "query must not be empty"}
+
+        read_api = self.get_read_api()
+        if read_api is None:
+            return {"ok": False, "error": "read_api_unavailable"}
+
+        short_query = query
+        try:
+            from filter.config import filter_enabled
+            if not filter_enabled():
+                raise ImportError("filter disabled")
+            from filter import get_plugin
+            plugin = get_plugin()
+            short_query, _ = plugin.short_query(query)
+        except ImportError:
+            pass
+        except Exception as exc:
+            logger.warning("search_memory filter short_query failed: %s", exc)
+
+        categories = None
+        if categories_param:
+            if isinstance(categories_param, list):
+                categories = categories_param
+            elif categories_param in ("l0", "l1", "l2", "non-code", "natural_language"):
+                categories = ["natural_language"]
+
+        try:
+            result = read_api.search_memory(
+                query=short_query,
+                ctx=ctx,
+                top_k=limit,
+                categories=categories,
+                mode="QUICK",
+                fill_content_for_top_k=min(limit, 5),
+            )
+            hits = []
+            for hit in (result.hits or []):
+                hits.append({
+                    "uri": hit.uri,
+                    "abstract": hit.abstract or "",
+                    "content": hit.content_excerpt or "",
+                    "score": hit.score,
+                    "category": hit.category,
+                })
+            try:
+                from filter.config import filter_enabled
+                if not filter_enabled():
+                    raise ImportError("filter disabled")
+                from filter import get_plugin
+                plugin = get_plugin()
+                hits = plugin.short_retrieved_blocks(hits, budget_chars=2000)
+            except Exception:
+                pass
+            return {"ok": True, "hits": hits, "query": short_query}
+        except Exception as exc:
+            logger.error("search_memory failed: %s", exc, exc_info=True)
+            return {"ok": False, "error": str(exc)}
 
     def prepare_subagent_spawn(self, params: dict) -> dict:
         return {"prepared": True}

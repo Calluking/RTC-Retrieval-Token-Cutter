@@ -468,6 +468,16 @@ class SessionManager:
             for m in snapshot
         ]
 
+        try:
+            from filter.config import filter_enabled
+            if not filter_enabled():
+                raise ImportError("filter disabled")
+            from filter import get_plugin
+            plugin = get_plugin()
+            messages_dicts = plugin.short_session_messages(messages_dicts)
+        except Exception:
+            pass  # Filter failure should not block archive writing
+
         prev_overview, prev_abstract = self._get_latest_archive_context(
             session_id, ctx,
         )

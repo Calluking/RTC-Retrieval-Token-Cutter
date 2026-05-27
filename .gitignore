@@ -47,6 +47,8 @@ scripts/SWE/openclaw/legacy/output_logs/
 scripts/SWE/openclaw/legacy/include/
 scripts/SWE/openclaw/legacy/__pycache__/
 
+scripts/SMOKE*
+
 # RTC/AGFS runtime data
 agfs-data/
 rtc-runtime/
@@ -54,3 +56,4 @@ workspace.git/
 
 # Artifacts from development tools
 artifacts/
+

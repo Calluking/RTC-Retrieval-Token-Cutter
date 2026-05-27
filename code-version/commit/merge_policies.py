@@ -404,3 +404,47 @@ class CodeChunkPolicy(MergePolicy):
             },
             relation_edges=[],
         )
+
+
+class NaturalLanguageMemoryPolicy(MergePolicy):
+    """Merge policy for filtered non-code natural-language memory."""
+
+    def __init__(self, fs: ContextFS, uri_resolver: URIResolver):
+        self._fs = fs
+        self._uri_resolver = uri_resolver
+
+    def plan(self, candidate: CandidateMemory, ctx: RequestContext) -> WritePlan:
+        routing_key = candidate.routing_key or "default"
+        if routing_key == "default":
+            timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S")
+            unique_id = uuid_lib.uuid4().hex[:8]
+            normalized_key = f"{timestamp}_{unique_id}"
+        else:
+            normalized_key = normalize_routing_key(routing_key, "natural_language")
+        target_uri = (
+            f"ctx://{ctx.account_id}/users/{ctx.user_id}/memories/"
+            f"natural_language/{normalized_key}"
+        )
+
+        if self._fs.exists(target_uri, ctx):
+            existing_node = self._fs.read_node(target_uri, ctx)
+            current_version = existing_node.metadata.get("version", 0)
+            return WritePlan(
+                action="merge",
+                target_uri=target_uri,
+                merged_fields={
+                    "existing_overview": existing_node.overview,
+                    "overview_append": candidate.overview,
+                    "existing_content": existing_node.content,
+                    "content_append": candidate.content,
+                    "expected_version": current_version,
+                },
+                relation_edges=[],
+            )
+
+        return WritePlan(
+            action="create",
+            target_uri=target_uri,
+            merged_fields={},
+            relation_edges=[],
+        )

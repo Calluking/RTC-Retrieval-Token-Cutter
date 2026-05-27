@@ -21,6 +21,7 @@ from commit.merge_policies import (
     AppendOnlyPolicy,
     SkillToolPolicy,
     CodeChunkPolicy,
+    NaturalLanguageMemoryPolicy,
 )
 
 logger = getLogger(__name__)
@@ -61,6 +62,7 @@ class PolicyRouter:
         self._append_only_policy: Optional[AppendOnlyPolicy] = None
         self._skill_tool_policy: Optional[SkillToolPolicy] = None
         self._code_chunk_policy: Optional[CodeChunkPolicy] = None
+        self._natural_language_memory_policy: Optional[NaturalLanguageMemoryPolicy] = None
 
         # Custom policy overrides (category → MergePolicy)
         self._custom_policies: dict[str, MergePolicy] = {}
@@ -89,6 +91,9 @@ class PolicyRouter:
 
         if candidate.category == "code":
             return self._get_code_chunk_policy()
+
+        if candidate.category == "natural_language":
+            return self._get_natural_language_memory_policy()
 
         # Look up schema
         schema = self._registry.get(candidate.category)
@@ -175,6 +180,14 @@ class PolicyRouter:
         if self._code_chunk_policy is None:
             self._code_chunk_policy = CodeChunkPolicy(self._fs)
         return self._code_chunk_policy
+
+    def _get_natural_language_memory_policy(self) -> NaturalLanguageMemoryPolicy:
+        """Get or create NaturalLanguageMemoryPolicy instance."""
+        if self._natural_language_memory_policy is None:
+            self._natural_language_memory_policy = NaturalLanguageMemoryPolicy(
+                self._fs, self._uri_resolver
+            )
+        return self._natural_language_memory_policy
 
     def plan(self, candidate: CandidateMemory, ctx: RequestContext) -> WritePlan:
         """Generate WritePlan using the appropriate policy.
