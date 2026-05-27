@@ -347,32 +347,6 @@ export function registerRtcTools(api: any, config: ResolvedConfig, ensureBackend
     api.registerTool(tool, { names, name: names[0] });
   };
 
-  if (config.readToolPolicy !== "off") {
-    register(
-      {
-        name: "rtc_read",
-        label: config.readToolPolicy === "guard" ? "RTC Read (Guarded)" : "RTC Read",
-        description:
-          "Read file contents. For code tasks, do not use this on a file already returned by rtc_search_code with usable content_excerpt/local_snippet_fallback snippets; those snippets are exact file text and should be used directly for reasoning and edit replacement context. Use this only when RTC search misses the needed file or still lacks exact replacement context after a focused retry.",
-        parameters: {
-          type: "object",
-          additionalProperties: false,
-          properties: {
-            path: { type: "string", description: "Path to the file to read, relative to the configured workspace or absolute inside it." },
-            offset: { type: "number", description: "Optional 1-indexed starting line." },
-            limit: { type: "number", description: "Optional maximum number of lines." },
-          },
-          required: ["path"],
-        },
-        async execute(arg1: unknown, arg2: unknown) {
-          const params = paramsFromArgs<{ path?: string; offset?: number; limit?: number }>(arg1, arg2);
-          return executeRtcReadTool(config, params);
-        },
-      },
-      ["rtc_read"],
-    );
-  }
-
   register(
     {
       name: "rtc_health",

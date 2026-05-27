@@ -8,7 +8,6 @@
   },
   "contracts": {
     "tools": [
-      "rtc_read",
       "rtc_search_code",
       "rtc_edit_file",
       "rtc_index_codebase",
@@ -16,9 +15,6 @@
     ]
   },
   "toolMetadata": {
-    "rtc_read": {
-      "description": "Read file contents. For code tasks, use only when rtc_search_code misses the needed exact text after a focused retry."
-    },
     "rtc_search_code": {
       "description": "Search source, tests, docs, and release notes. content_excerpt is exact editable file text for edit replacement context; do not re-read files already returned with usable snippets."
     },
@@ -79,7 +75,7 @@
         "type": "string",
         "default": "advisory",
         "enum": ["off", "advisory", "guard"],
-        "description": "Controls the RTC read replacement. advisory exposes rtc_read; guard exposes rtc_read and blocks native read."
+        "description": "Controls native read handling. advisory leaves native read available; guard blocks native read."
       },
       "searchLimit": {
         "type": "number",

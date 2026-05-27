@@ -303,7 +303,7 @@ export RTC_DISABLE_AFTER_TURN_EXTRACTION="${RTC_DISABLE_AFTER_TURN_EXTRACTION:-1
 export RTC_START_LOCAL_EMBED_SERVER="${RTC_START_LOCAL_EMBED_SERVER:-0}"
 export RTC_OPENCLAW_AUTO_START="${RTC_OPENCLAW_AUTO_START:-1}"
 export RTC_OPENCLAW_AUTO_STOP="${RTC_OPENCLAW_AUTO_STOP:-1}"
-export RTC_OPENCLAW_READ_TOOL_POLICY="${RTC_OPENCLAW_READ_TOOL_POLICY:-guard}"
+export RTC_OPENCLAW_READ_TOOL_POLICY="${RTC_OPENCLAW_READ_TOOL_POLICY:-advisory}"
 export RTC_OPENCLAW_SOUL_POLICY="${RTC_OPENCLAW_SOUL_POLICY:-none}"
 export RTC_PLUGIN_START_WAIT="${RTC_PLUGIN_START_WAIT:-60}"
 
@@ -463,8 +463,8 @@ the OpenClaw plugin. For repository source, test, documentation, and release
 note investigation, treat `rtc_search_code` results as the file context.
 
 If RTC returns a usable `content_excerpt`, use it directly for reasoning and
-patch construction. Do not use native `read` or `rtc_read` when same-file RTC
-snippets exist.
+patch construction. Avoid broad native `read` exploration after same-file RTC
+snippets exist; a narrow native `read` is acceptable to verify an applied edit.
 EOF2
 fi
 

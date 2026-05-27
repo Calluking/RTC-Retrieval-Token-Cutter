@@ -51,3 +51,6 @@ scripts/SWE/openclaw/legacy/__pycache__/
 agfs-data/
 rtc-runtime/
 workspace.git/
+
+# Artifacts from development tools
+artifacts/
