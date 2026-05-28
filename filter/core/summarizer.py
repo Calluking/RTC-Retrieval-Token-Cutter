@@ -20,6 +20,8 @@ def extract_errors(text: str, limit: int = 10) -> list[str]:
         r"(?i)error[:\s].*",
         r"(?i)exception[:\s].*",
         r"(?i)failed[:\s].*",
+        r"(?i)(?:^|\s)\[failure\].*",
+        r"(?i)^failure_count\s*=\s*[1-9]\d*.*",
         r"Traceback \(most recent call last\)",
         r"(?i)panic[:\s].*",
     ]

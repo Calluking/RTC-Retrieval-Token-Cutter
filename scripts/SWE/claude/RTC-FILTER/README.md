@@ -32,14 +32,14 @@ With `uv`, use the extras that match the runner bootstrap:
 uv sync --extra mcp --extra swe
 ```
 
-Create `env.sh` from the repository template:
+Create `env.sh` from the repository template, then edit it with local values:
 
 ```bash
 cp env.sh.example env.sh
-export RTC_EMBEDDING_API_KEY="<your-key>"
-export RTC_EMBEDDING_BASE_URL="https://api.openai-proxy.org"
-export RTC_EMBEDDING_MODEL="text-embedding-3-small"
+$EDITOR env.sh
 ```
+
+At minimum, set `RTC_EMBEDDING_API_KEY` for real RTC code search.
 
 The default local SWE-bench environment derivation uses Conda because it adapts
 the official SWE-bench `TestSpec` environment commands.
@@ -48,8 +48,8 @@ the official SWE-bench `TestSpec` environment commands.
 
 ```bash
 cd /path/to/retrieval-token-cutter
-source scripts/SWE/claude/RTC/setup_swe_env.sh
-./scripts/SWE/claude/RTC/run_swe_task_lite_rtc_plugin.sh
+source scripts/SWE/claude/RTC-FILTER/setup_swe_env.sh
+./scripts/SWE/claude/RTC-FILTER/run_swe_task_lite_rtc_plugin.sh
 ```
 
 By default, `setup_swe_env.sh` sets `SWE_VALIDATION_FORCE_LOCAL=1`, so
@@ -58,7 +58,7 @@ avoids Docker-internal network failures on machines where containers cannot
 reach GitHub. To use the official Docker harness instead:
 
 ```bash
-SWE_VALIDATION_FORCE_LOCAL=0 ./scripts/SWE/claude/RTC/run_swe_task_lite_rtc_plugin.sh
+SWE_VALIDATION_FORCE_LOCAL=0 ./scripts/SWE/claude/RTC-FILTER/run_swe_task_lite_rtc_plugin.sh
 ```
 
 During the Claude fixing loop, the runner creates `workspace/RUN_IN_SWE_LOCAL_ENV.sh`
@@ -83,10 +83,10 @@ For a faster smoke run:
 
 ```bash
 cd /path/to/retrieval-token-cutter
-source scripts/SWE/claude/RTC/setup_swe_env.sh
+source scripts/SWE/claude/RTC-FILTER/setup_swe_env.sh
 SWE_USE_DERIVED_LOCAL_ENV=0 \
 SWE_SKIP_VALIDATION=1 \
-./scripts/SWE/claude/RTC/run_swe_task_lite_rtc_plugin.sh
+./scripts/SWE/claude/RTC-FILTER/run_swe_task_lite_rtc_plugin.sh
 ```
 
 ## Outputs
@@ -94,13 +94,13 @@ SWE_SKIP_VALIDATION=1 \
 Runs are written under:
 
 ```text
-scripts/SWE/claude/RTC/output_logs/<timestamp>-swe-lite-rtc-r<run>-p<pid>/
+scripts/SWE/claude/RTC-FILTER/output_logs/<timestamp>-swe-lite-rtc-r<run>-p<pid>/
 ```
 
 The latest run is linked at:
 
 ```text
-scripts/SWE/claude/RTC/output_logs/latest
+scripts/SWE/claude/RTC-FILTER/output_logs/latest
 ```
 
 Set `SWE_OUTPUT_ROOT=/path/to/output_logs` to write runs somewhere else.
@@ -134,11 +134,11 @@ editors from displaying every SWE run as a nested Git repository.
 Confirm the plugin loaded:
 
 ```bash
-rg -n "Skill prompt|Loaded hooks|plugin:retrieval-token-cutter" "${SWE_OUTPUT_ROOT:-scripts/SWE/claude/RTC/output_logs}/latest/logs/claude-code-debug.log"
+rg -n "Skill prompt|Loaded hooks|plugin:retrieval-token-cutter" "${SWE_OUTPUT_ROOT:-scripts/SWE/claude/RTC-FILTER/output_logs}/latest/logs/claude-code-debug.log"
 ```
 
 Confirm MCP calls:
 
 ```bash
-rg -n "mcp__plugin_retrieval-token-cutter_retrieval-token-cutter__(search_code|edit_file)|Tool 'search_code'|Tool 'edit_file'" "${SWE_OUTPUT_ROOT:-scripts/SWE/claude/RTC/output_logs}/latest/logs/claude-code-debug.log"
+rg -n "mcp__plugin_retrieval-token-cutter_retrieval-token-cutter__(search_code|edit_file)|Tool 'search_code'|Tool 'edit_file'" "${SWE_OUTPUT_ROOT:-scripts/SWE/claude/RTC-FILTER/output_logs}/latest/logs/claude-code-debug.log"
 ```

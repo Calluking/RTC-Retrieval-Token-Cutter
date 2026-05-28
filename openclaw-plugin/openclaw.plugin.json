@@ -77,6 +77,21 @@
         "enum": ["off", "advisory", "guard"],
         "description": "Controls native read handling. advisory leaves native read available; guard blocks native read."
       },
+      "filterEnabled": {
+        "type": "boolean",
+        "default": true,
+        "description": "Enable native read and exec filtering through Retrieval Token Cutter."
+      },
+      "filterNativeRead": {
+        "type": "boolean",
+        "default": true,
+        "description": "Rewrite long native read results to filtered L0 files when RTC classifies them as filterable."
+      },
+      "filterNativeExec": {
+        "type": "boolean",
+        "default": true,
+        "description": "Wrap whitelisted native exec commands so long output is filtered before reaching the model."
+      },
       "searchLimit": {
         "type": "number",
         "default": 4,
@@ -129,6 +144,17 @@
     },
     "readToolPolicy": {
       "label": "Read tool policy",
+      "advanced": true
+    },
+    "filterEnabled": {
+      "label": "Enable output filtering"
+    },
+    "filterNativeRead": {
+      "label": "Filter native read",
+      "advanced": true
+    },
+    "filterNativeExec": {
+      "label": "Filter native exec",
       "advanced": true
     },
     "accountId": {

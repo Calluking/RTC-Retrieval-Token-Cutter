@@ -152,6 +152,43 @@ def _workspace_root_arg(path: str | None) -> str | None:
     return str(Path(os.path.expandvars(raw)).expanduser().resolve())
 
 
+def _search_scope_args(path: str | None, glob_patterns: str | None) -> tuple[str | None, str | None]:
+    """Resolve search_code path, accepting either a workspace root or file scope."""
+    raw = (path or "").strip()
+    workspace_root = _workspace_root_arg(raw)
+    patterns = [p.strip() for p in re.split(r"[\n,]", glob_patterns or "") if p.strip()]
+    unresolved = {
+        "",
+        "$WORK_DIR",
+        "${WORK_DIR}",
+        "$PWD",
+        "${PWD}",
+        "$RTC_WORKSPACE_ROOT",
+        "${RTC_WORKSPACE_ROOT}",
+    }
+    if raw in unresolved:
+        return workspace_root, ",".join(patterns) or None
+
+    active_raw = os.environ.get("RTC_WORKSPACE_ROOT", "") or os.environ.get("CLAUDE_PROJECT_DIR", "") or os.getcwd()
+    active_root = Path(active_raw).expanduser().resolve()
+    raw_path = Path(os.path.expandvars(raw)).expanduser()
+    active_target = raw_path if raw_path.is_absolute() else active_root / raw_path
+    active_target = active_target.resolve()
+
+    if active_target.is_file():
+        try:
+            rel = active_target.relative_to(active_root).as_posix()
+            return str(active_root), ",".join([rel, *patterns])
+        except ValueError:
+            return str(active_target.parent), ",".join([active_target.name, *patterns])
+
+    resolved = raw_path.resolve()
+    if resolved.is_file():
+        return str(resolved.parent), ",".join([resolved.name, *patterns])
+
+    return workspace_root, ",".join(patterns) or None
+
+
 def _resolve_workspace_path(workspace_root: str, file_path: str) -> Path:
     root = Path(workspace_root).expanduser().resolve()
     target = Path(file_path).expanduser()
@@ -254,17 +291,18 @@ of reading many unrelated files.
 )
 def search_code(
     query: Annotated[str, "Natural language or keyword query."],
-    path: Annotated[str, "Workspace root. Leave empty to use RTC_WORKSPACE_ROOT, then Claude's launch/project directory."] = "",
+    path: Annotated[str, "Workspace root. If a file path is supplied, search is narrowed to that file. Leave empty to use RTC_WORKSPACE_ROOT, then Claude's launch/project directory."] = "",
     limit: Annotated[int, "Max hits (1-100)."] = 5,
     glob_patterns: Annotated[str, "Optional comma-separated glob patterns to narrow candidate files before ranking."] = "",
     grep_terms: Annotated[str, "Optional comma-separated grep keywords/symbols to narrow candidate files before ranking."] = "",
 ) -> str:
+    workspace_root, scope_patterns = _search_scope_args(path, glob_patterns)
     body = identity_fields(
         {
-            "workspaceRoot": _workspace_root_arg(path),
+            "workspaceRoot": workspace_root,
             "query": _canonical_code_query(query),
             "limit": _effective_search_limit(limit),
-            "glob_patterns": glob_patterns or None,
+            "glob_patterns": scope_patterns,
             "grep_terms": grep_terms or None,
             "waitForFullWorkspaceIndex": False,
         }
@@ -339,9 +377,9 @@ def read_filtered(
     description="""\
 Return the original unfiltered output for a filtered tool result.
 
-Use this when a tool result begins with `FILTER IS TRIGGERED` and the shortened
-output appears to be missing information needed to continue. Pass the
-`memory_uri` shown in the filtered output banner.
+Use this when a tool result begins with `FILTER IS TRIGGERED` and the filtered
+or captured output appears to be missing information needed to continue. Pass
+the `memory_uri` shown in the output banner.
 """,
 )
 def get_original_tool_output(

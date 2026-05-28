@@ -222,6 +222,24 @@ cp -a "$SWE_INSTANCE_JSON" "$EXPERIMENT_DIR/instance.json"
 cp -a "$SWE_PROMPT_FILE" "$WORK_DIR/TASK.md"
 CODE_POLICY_PROMPT="$OPENCLAW_PLUGIN_DIR/prompts/code_policy_injection.txt"
 if [ "${RTC_APPEND_CODE_POLICY_TO_TASK:-1}" = "1" ] && [ -f "$CODE_POLICY_PROMPT" ]; then
+  CODE_POLICY_RENDERED="$LOGS_DIR/openclaw-code-policy-rendered.txt"
+  if OPENCLAW_PLUGIN_DIR="$OPENCLAW_PLUGIN_DIR" node --experimental-strip-types --input-type=module > "$CODE_POLICY_RENDERED" <<'JS'
+import fs from "node:fs";
+import path from "node:path";
+import { pathToFileURL } from "node:url";
+
+const pluginDir = process.env.OPENCLAW_PLUGIN_DIR;
+if (!pluginDir) throw new Error("OPENCLAW_PLUGIN_DIR is not set");
+const promptPath = path.join(pluginDir, "prompts", "code_policy_injection.txt");
+const modulePath = pathToFileURL(path.join(pluginDir, "src", "policy.ts")).href;
+const { renderPolicyPrompt } = await import(modulePath);
+process.stdout.write(`${renderPolicyPrompt(fs.readFileSync(promptPath, "utf8"))}\n`);
+JS
+  then
+    CODE_POLICY_PROMPT="$CODE_POLICY_RENDERED"
+  else
+    echo "[setup] Failed to render OpenClaw RTC code policy; appending raw prompt." >&2
+  fi
   {
     printf '\n'
     cat "$CODE_POLICY_PROMPT"
@@ -306,6 +324,9 @@ export RTC_OPENCLAW_AUTO_STOP="${RTC_OPENCLAW_AUTO_STOP:-1}"
 export RTC_OPENCLAW_READ_TOOL_POLICY="${RTC_OPENCLAW_READ_TOOL_POLICY:-advisory}"
 export RTC_OPENCLAW_SOUL_POLICY="${RTC_OPENCLAW_SOUL_POLICY:-none}"
 export RTC_PLUGIN_START_WAIT="${RTC_PLUGIN_START_WAIT:-60}"
+export RTC_FILTER_ENABLED="${RTC_FILTER_ENABLED:-1}"
+export RTC_FILTER_NATIVE_READ="${RTC_FILTER_NATIVE_READ:-1}"
+export RTC_FILTER_NATIVE_BASH="${RTC_FILTER_NATIVE_BASH:-1}"
 
 ensure_embedding_backend() {
   [ "${RTC_EMBEDDING_PROBE_REQUIRED:-0}" = "1" ] || return 0
@@ -440,6 +461,12 @@ openclaw config set plugins.entries.retrieval-token-cutter.config.injectCodePoli
   > "$LOGS_DIR/openclaw-config-inject.log" 2>&1
 openclaw config set plugins.entries.retrieval-token-cutter.config.readToolPolicy "$(json_string "$RTC_OPENCLAW_READ_TOOL_POLICY")" --strict-json \
   > "$LOGS_DIR/openclaw-config-read-tool-policy.log" 2>&1
+openclaw config set plugins.entries.retrieval-token-cutter.config.filterEnabled true --strict-json \
+  > "$LOGS_DIR/openclaw-config-filter-enabled.log" 2>&1
+openclaw config set plugins.entries.retrieval-token-cutter.config.filterNativeRead true --strict-json \
+  > "$LOGS_DIR/openclaw-config-filter-read.log" 2>&1
+openclaw config set plugins.entries.retrieval-token-cutter.config.filterNativeExec true --strict-json \
+  > "$LOGS_DIR/openclaw-config-filter-exec.log" 2>&1
 
 openclaw gateway restart \
   > "$LOGS_DIR/openclaw-gateway-restart.log" 2>&1 || true

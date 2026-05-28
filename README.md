@@ -47,16 +47,18 @@ uv sync --extra mcp --extra swe
 
 ## Configure
 
-Create local `env.sh` from [env.sh.example](env.sh.example) before running Claude:
+Create local `env.sh` from [env.sh.example](env.sh.example), then edit it with
+your local values:
 
 ```bash
 cp env.sh.example env.sh
-export RTC_EMBEDDING_API_KEY="<your-key>"
-export RTC_EMBEDDING_BASE_URL="https://api.openai-proxy.org"
-export RTC_EMBEDDING_MODEL="text-embedding-3-small"
+$EDITOR env.sh
 ```
 
-If you use the virtual environment above, you can leave `PY_BIN` empty. `setup_env.sh` will detect `.venv/bin/python`.
+At minimum, set `RTC_EMBEDDING_API_KEY` for real code search. If you do not use
+the repository `.venv`, set `PY_BIN` to a Python that can import `flask`,
+`mcp`, `openai`, and `pyagfs`. The Claude plugin launcher also checks common
+local Conda paths such as `~/miniconda3/bin/python`.
 
 Do not commit real API keys.
 
@@ -66,8 +68,16 @@ From the project you want Claude to edit, run exactly:
 
 ```bash
 cd /path/to/project
-source /path/to/retrieval-token-cutter/setup_env.sh
-claude --plugin-dir "$RTC_CLAUDE_PLUGIN_DIR"
+claude --plugin-dir /path/to/retrieval-token-cutter/claude-plugin
+```
+
+Do not pass `--mcp-config`; the plugin owns its `.mcp.json`. The plugin starts
+its MCP server immediately and starts the RTC/AGFS backend on demand. If your
+environment variables only live in `env.sh`, use the helper launcher instead:
+
+```bash
+cd /path/to/project
+/path/to/retrieval-token-cutter/claude-plugin/bin/rtc-claude
 ```
 
 Then ask Claude something like:
@@ -125,7 +135,12 @@ Inside Claude:
 /plugin
 ```
 
-You should see `retrieval-token-cutter` with no loading errors.
+You should see:
+
+```text
+retrieval-token-cutter Plugin · inline · ✔ enabled
+└ retrieval-token-cutter MCP · ✔ connected
+```
 
 In Claude Code debug logs, successful code work should include calls like:
 

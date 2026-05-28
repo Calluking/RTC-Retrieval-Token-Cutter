@@ -19,6 +19,10 @@ pick_python() {
     "${PY_BIN:-}" \
     "$REPO_ROOT/.venv/bin/python" \
     "$REPO_ROOT/.venv/bin/python3" \
+    "$HOME/miniconda3/bin/python" \
+    "$HOME/anaconda3/bin/python" \
+    "$HOME/mambaforge/bin/python" \
+    "$HOME/miniforge3/bin/python" \
     "$(command -v python3 2>/dev/null || true)" \
     "$(command -v python 2>/dev/null || true)"
   do

@@ -47,27 +47,36 @@ uv sync --extra mcp --extra swe
 
 ## 配置
 
-运行 Claude 前，先从 [env.sh.example](env.sh.example) 创建本地 `env.sh`：
+先从 [env.sh.example](env.sh.example) 创建本地 `env.sh`，然后编辑里面的本地配置：
 
 ```bash
 cp env.sh.example env.sh
-export RTC_EMBEDDING_API_KEY="<your-key>"
-export RTC_EMBEDDING_BASE_URL="https://api.openai-proxy.org"
-export RTC_EMBEDDING_MODEL="text-embedding-3-small"
+$EDITOR env.sh
 ```
 
-如果使用上面的 `.venv`，`PY_BIN` 可以留空，`setup_env.sh` 会自动找到 `.venv/bin/python`。
+实际做代码搜索时，至少要设置 `RTC_EMBEDDING_API_KEY`。如果不使用仓库里的
+`.venv`，请把 `PY_BIN` 指向能 import `flask`、`mcp`、`openai` 和
+`pyagfs` 的 Python。Claude 插件启动器也会检查常见本地 Conda 路径，例如
+`~/miniconda3/bin/python`。
 
 不要把真实 API key 提交到公开仓库。
 
 ## 启动 Claude
 
-在你希望 Claude 修改的项目目录中运行三行命令：
+在你希望 Claude 修改的项目目录中运行：
 
 ```bash
 cd /path/to/project
-source /path/to/retrieval-token-cutter/setup_env.sh
-claude --plugin-dir "$RTC_CLAUDE_PLUGIN_DIR"
+claude --plugin-dir /path/to/retrieval-token-cutter/claude-plugin
+```
+
+不要传 `--mcp-config`，插件自带 `.mcp.json`。插件会先启动自己的 MCP
+server，RTC/AGFS 后端会在需要时按需启动。如果环境变量只写在 `env.sh`
+里，请改用 helper 启动器：
+
+```bash
+cd /path/to/project
+/path/to/retrieval-token-cutter/claude-plugin/bin/rtc-claude
 ```
 
 然后在 Claude 里直接说：
@@ -125,7 +134,12 @@ Fix the bug in the add function.
 /plugin
 ```
 
-应该能看到 `retrieval-token-cutter`，并且没有加载错误。
+应该能看到：
+
+```text
+retrieval-token-cutter Plugin · inline · ✔ enabled
+└ retrieval-token-cutter MCP · ✔ connected
+```
 
 Claude Code debug log 中应出现类似工具调用：
 

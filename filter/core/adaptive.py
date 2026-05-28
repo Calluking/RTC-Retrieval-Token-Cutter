@@ -52,12 +52,17 @@ _CODE_PATTERNS = [
 _LOG_PATTERNS = [
     re.compile(r"^(?:\s*\d+\s+)?\d{4}-\d{2}-\d{2}[\sT]", re.MULTILINE),  # ISO date, optionally Read-numbered
     re.compile(r"^\[\s*(DEBUG|INFO|WARN|ERROR|FATAL)", re.MULTILINE),
+    re.compile(r"^\[(summary|trace|failure|debug|info|warn|error|fatal)\]", re.MULTILINE | re.IGNORECASE),
+    re.compile(r"^(failure_count|function_count|expected_source)=", re.MULTILINE),
     re.compile(r"\b(log|print|echo|printf|console\.log)\s*\(", re.IGNORECASE),
     re.compile(r"^\s*at\s+[\w.$]+\([^)]*\)\s*$", re.MULTILINE),  # Stack trace lines
 ]
 
 _LOG_LINE_PREFIX_PATTERN = re.compile(
-    r"^\s*(?:\d+\s+)?\d{4}-\d{2}-\d{2}[\sT].*\b(DEBUG|INFO|WARN|WARNING|ERROR|FATAL|TRACE)\b",
+    r"^\s*(?:\d+\s+)?(?:"
+    r"\d{4}-\d{2}-\d{2}[\sT].*\b(DEBUG|INFO|WARN|WARNING|ERROR|FATAL|TRACE)\b"
+    r"|\[(summary|trace|failure|debug|info|warn|warning|error|fatal)\]"
+    r")",
     re.MULTILINE,
 )
 

@@ -11,6 +11,9 @@ export interface RtcPluginConfig {
   startWaitSeconds?: number;
   injectCodePolicy?: boolean;
   readToolPolicy?: string;
+  filterEnabled?: boolean;
+  filterNativeRead?: boolean;
+  filterNativeExec?: boolean;
   searchLimit?: number;
   accountId?: string;
   userId?: string;
@@ -29,6 +32,9 @@ export interface ResolvedConfig {
   startWaitSeconds: number;
   injectCodePolicy: boolean;
   readToolPolicy: string;
+  filterEnabled: boolean;
+  filterNativeRead: boolean;
+  filterNativeExec: boolean;
   searchLimit: number;
   accountId: string;
   userId: string;
@@ -98,6 +104,9 @@ export function resolveConfig(config: RtcPluginConfig, pluginRoot: string, repoR
     startWaitSeconds: asNumber(config.startWaitSeconds ?? process.env.RTC_PLUGIN_START_WAIT, 45, 1, 180),
     injectCodePolicy: asBoolean(config.injectCodePolicy, true),
     readToolPolicy: asReadToolPolicy(config.readToolPolicy ?? process.env.RTC_OPENCLAW_READ_TOOL_POLICY),
+    filterEnabled: asBoolean(config.filterEnabled ?? process.env.RTC_FILTER_ENABLED, true),
+    filterNativeRead: asBoolean(config.filterNativeRead ?? process.env.RTC_FILTER_NATIVE_READ, true),
+    filterNativeExec: asBoolean(config.filterNativeExec ?? process.env.RTC_FILTER_NATIVE_BASH, true),
     searchLimit: asNumber(config.searchLimit ?? process.env.RTC_SEARCH_LIMIT, 4, 1, 100),
     accountId: config.accountId || process.env.RTC_ACCOUNT_ID || "acct-demo",
     userId: config.userId || process.env.RTC_USER_ID || "u-openclaw",

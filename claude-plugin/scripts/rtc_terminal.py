@@ -24,6 +24,12 @@ SIDE_EFFECT_TOOLS = {"Write", "Edit", "MultiEdit", "Bash", "NotebookEdit"}
 MAX_TOOL_CHARS = 10000
 PLUGIN_ROOT = Path(__file__).resolve().parents[1]
 CODE_POLICY_PROMPT_PATH = PLUGIN_ROOT / "prompts" / "code_policy_injection.txt"
+FILTERING_PROMPT_HEADING = "## Filtering Strategy"
+FILTERING_PROMPT_END_MARKER = "Keep the workflow compact:"
+FILTERING_PROMPT_BULLETS = (
+    "- Native `Read` on long logs/traces may be filtered through RTC before content is returned. "
+    "The backend stores L0 as filtered content, L1 as properties, and L2 as the original output.",
+)
 
 
 def log(prefix: str, message: str) -> None:
@@ -68,6 +74,53 @@ def post_json(path: str, body: dict[str, Any], timeout: float = 30.0) -> dict[st
     return json.loads(raw) if raw.strip() else {}
 
 
+def backend_healthy(timeout: float = 1.0) -> bool:
+    try:
+        get_json("/api/v1/health", timeout=timeout)
+        return True
+    except Exception:
+        return False
+
+
+def ensure_backend_for_hook() -> bool:
+    if os.environ.get("RTC_PLUGIN_AUTO_START", "1").strip().lower() in {"0", "false", "no", "off"}:
+        return backend_healthy(timeout=1)
+    if backend_healthy(timeout=1):
+        return True
+
+    wait = os.environ.get("RTC_PLUGIN_HOOK_START_WAIT") or "8"
+    try:
+        timeout = max(2.0, float(wait) + 3.0)
+    except ValueError:
+        wait = "8"
+        timeout = 11.0
+    try:
+        proc = subprocess.run(
+            [
+                sys.executable,
+                str(PLUGIN_ROOT / "scripts" / "rtc_terminal.py"),
+                "start",
+                "--wait",
+                wait,
+            ],
+            cwd=str(PLUGIN_ROOT.parent),
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=timeout,
+            check=False,
+        )
+    except Exception as exc:
+        log("ensure_backend", f"auto-start failed: {exc}")
+        return False
+    if proc.returncode != 0:
+        err = (proc.stderr or "").strip().replace("\n", " ")
+        log("ensure_backend", f"auto-start exited {proc.returncode}: {err[:240]}")
+    return backend_healthy(timeout=1)
+
+
 def get_json(path: str, timeout: float = 10.0) -> dict[str, Any]:
     req = urllib.request.Request(api_url() + path, headers=headers(), method="GET")
     with urllib.request.urlopen(req, timeout=timeout) as resp:
@@ -108,12 +161,35 @@ def looks_like_code_prompt(prompt: str) -> bool:
     return any(keyword in lowered for keyword in keywords)
 
 
+def filtering_prompt_enabled() -> bool:
+    return truthy_env("RTC_INJECT_FILTERING_PROMPT", "0")
+
+
+def render_code_policy_prompt(text: str, include_filtering: bool) -> str:
+    if include_filtering:
+        return text.strip()
+
+    for bullet in FILTERING_PROMPT_BULLETS:
+        text = text.replace(bullet + "\n", "")
+
+    start = text.find(FILTERING_PROMPT_HEADING)
+    if start == -1:
+        return text.strip()
+
+    end = text.find(FILTERING_PROMPT_END_MARKER, start)
+    if end == -1:
+        return (text[:start]).rstrip()
+
+    return (text[:start].rstrip() + "\n\n" + text[end:].lstrip()).strip()
+
+
 def code_policy_prompt() -> str:
     try:
-        return CODE_POLICY_PROMPT_PATH.read_text(encoding="utf-8").strip()
+        text = CODE_POLICY_PROMPT_PATH.read_text(encoding="utf-8")
     except OSError as exc:
         log("call_compose", f"failed to read code policy injection: {exc}")
         return ""
+    return render_code_policy_prompt(text, include_filtering=filtering_prompt_enabled())
 
 
 def extract_text(content: Any) -> str:
@@ -416,6 +492,13 @@ def command_compose(args: argparse.Namespace) -> int:
     return 0
 
 
+def command_render_code_policy(args: argparse.Namespace) -> int:
+    prompt = code_policy_prompt()
+    if prompt:
+        print(prompt)
+    return 0
+
+
 def command_after_turn(args: argparse.Namespace) -> int:
     if args.transcript:
         path = Path(args.transcript)
@@ -508,12 +591,15 @@ def hook_compose() -> int:
         policy = code_policy_prompt()
         if policy:
             additions.append(policy)
-    try:
-        data = post_json("/api/v1/compose", {**identity(session_id), "prompt": prompt}, timeout=30)
-        log("call_compose", f"POST {api_url()}/api/v1/compose session={session_id} prompt_len={len(prompt)}")
-    except Exception as exc:
-        log("call_compose", f"failed: {exc}")
-        data = {}
+    data = {}
+    if ensure_backend_for_hook():
+        try:
+            data = post_json("/api/v1/compose", {**identity(session_id), "prompt": prompt}, timeout=30)
+            log("call_compose", f"POST {api_url()}/api/v1/compose session={session_id} prompt_len={len(prompt)}")
+        except Exception as exc:
+            log("call_compose", f"failed: {exc}")
+    else:
+        log("call_compose", "backend unavailable")
     if data:
         additional = format_compose(data)
         if additional == "No relevant context found.":
@@ -548,6 +634,9 @@ def hook_add_session_message() -> int:
         f"tool_input: {compact_json(hook.get('tool_input'))}",
         f"tool_response: {compact_json(hook.get('tool_response'))}",
     ])
+    if not ensure_backend_for_hook():
+        log("call_add_session_message", "backend unavailable")
+        return 0
     body = {**identity(session_id), "role": "tool", "content": content}
     try:
         data = post_json(f"/api/v1/sessions/{session_id}/messages", body, timeout=8)
@@ -770,6 +859,10 @@ def hook_filter_read() -> int:
         sys.stdout.write(json.dumps(response, ensure_ascii=False))
         return 0
 
+    if not ensure_backend_for_hook():
+        log("call_filter_read", "backend unavailable")
+        return 0
+
     body = {
         **identity(session_id),
         "file_path": canonical_file_path,
@@ -862,6 +955,8 @@ def _bash_filter_candidate(command: str) -> str:
         return "test_runner"
     if re.search(r"(^|[\s;&|()])npm\s+(run\s+)?test\b", lower):
         return "test_runner"
+    if re.search(r"(^|[\s;&|()])(?:python|python\d+(?:\.\d+)?)\s+(?:\./)?run_(smoke|filter_probe)\.py\b", lower):
+        return "test_runner"
     if re.search(r"(^|[\s;&|()])git\s+diff\b", lower):
         return "diff"
     if re.search(r"(^|[\s;&|()])git\s+show\b", lower):
@@ -916,8 +1011,12 @@ def hook_filter_bash() -> int:
             sys.stdout.write(json.dumps(response, ensure_ascii=False))
         return 0
 
-    runtime_dir = Path(os.environ.get("RTC_RUNTIME_DIR") or ".").expanduser().resolve()
-    hook_dir = runtime_dir / "bash-filter-hook"
+    if not ensure_backend_for_hook():
+        log("call_filter_bash", "backend unavailable")
+        return 0
+
+    run = runtime_dir(None)
+    hook_dir = run / "bash-filter-hook"
     hook_dir.mkdir(parents=True, exist_ok=True)
     run_id = uuid.uuid4().hex
     payload_path = hook_dir / f"{run_id}.json"
@@ -1033,6 +1132,9 @@ def hook_after_turn() -> int:
     if not messages:
         offset_path.write_text(str(size))
         return 0
+    if not ensure_backend_for_hook():
+        log("call_after_turn", "backend unavailable")
+        return 0
     body = {**identity(session_id), "messages": messages, "hook_event_name": event}
     try:
         post_json("/api/v1/after_turn", body, timeout=10)
@@ -1069,6 +1171,9 @@ def build_parser() -> argparse.ArgumentParser:
     compose.add_argument("--json", action="store_true")
     compose.add_argument("--timeout", type=float, default=30)
     compose.set_defaults(func=command_compose)
+
+    policy = sub.add_parser("render-code-policy", help="Render the code policy prompt for hooks or SWE tasks")
+    policy.set_defaults(func=command_render_code_policy)
 
     after = sub.add_parser("after-turn", help="Ingest one transcript or stdin JSONL")
     after.add_argument("--transcript")

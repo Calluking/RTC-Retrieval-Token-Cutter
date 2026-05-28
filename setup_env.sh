@@ -64,6 +64,7 @@ export RTC_EMBEDDING_BASE_URL="${RTC_EMBEDDING_BASE_URL:-https://api.openai-prox
 export RTC_EMBEDDING_MODEL="${RTC_EMBEDDING_MODEL:-text-embedding-3-small}"
 export RTC_PLUGIN_AUTO_START="${RTC_PLUGIN_AUTO_START:-1}"
 export RTC_PLUGIN_AUTO_STOP="${RTC_PLUGIN_AUTO_STOP:-1}"
+export RTC_INJECT_FILTERING_PROMPT="${RTC_INJECT_FILTERING_PROMPT:-0}"
 
 echo "Loaded Retrieval Token Cutter Claude plugin defaults."
 echo "RTC_CLAUDE_PLUGIN_DIR=$RTC_CLAUDE_PLUGIN_DIR"

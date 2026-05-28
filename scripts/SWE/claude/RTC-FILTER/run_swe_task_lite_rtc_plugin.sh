@@ -213,12 +213,13 @@ CANON_LOCK="$LOCKS_DIR/${SWE_INSTANCE_ID}.canon.lock"
 cp -a "$SWE_INSTANCE_JSON" "$EXPERIMENT_DIR/instance.json"
 cp -a "$SWE_PROMPT_FILE" "$WORK_DIR/TASK.md"
 export RTC_WORKSPACE_ROOT="${RTC_WORKSPACE_ROOT:-$WORK_DIR}"
+export RTC_INJECT_FILTERING_PROMPT="${RTC_INJECT_FILTERING_PROMPT:-1}"
 
-CODE_POLICY_PROMPT="$CLAUDE_PLUGIN_DIR/prompts/code_policy_injection.txt"
-if [ "${RTC_APPEND_CODE_POLICY_TO_TASK:-1}" = "1" ] && [ -f "$CODE_POLICY_PROMPT" ]; then
+CODE_POLICY_RENDERER="$CLAUDE_PLUGIN_DIR/bin/rtc-render-code-policy"
+if [ "${RTC_APPEND_CODE_POLICY_TO_TASK:-1}" = "1" ] && [ -x "$CODE_POLICY_RENDERER" ]; then
   {
     printf '\n'
-    cat "$CODE_POLICY_PROMPT"
+    "$CODE_POLICY_RENDERER"
   } >> "$WORK_DIR/TASK.md"
 fi
 

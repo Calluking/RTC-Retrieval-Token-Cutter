@@ -26,24 +26,43 @@ scripts_code_mcp/
 scripts/SWE/claude/RTC/.cache/
 scripts/SWE/claude/RTC/repo/
 scripts/SWE/claude/RTC/output_logs/
+scripts/SWE/claude/RTC/output_logs*
 scripts/SWE/claude/RTC/include/
 scripts/SWE/claude/RTC/__pycache__/
+
+scripts/SWE/claude/RTC-FILTER/.cache/
+scripts/SWE/claude/RTC-FILTER/repo/
+scripts/SWE/claude/RTC-FILTER/output_logs/
+scripts/SWE/claude/RTC-FILTER/output_logs*
+scripts/SWE/claude/RTC-FILTER/include/
+scripts/SWE/claude/RTC-FILTER/__pycache__/
 
 scripts/SWE/claude/legacy/.cache/
 scripts/SWE/claude/legacy/repo/
 scripts/SWE/claude/legacy/output_logs/
+scripts/SWE/claude/legacy/output_logs*
 scripts/SWE/claude/legacy/include/
 scripts/SWE/claude/legacy/__pycache__/
 
 scripts/SWE/openclaw/RTC/.cache/
 scripts/SWE/openclaw/RTC/repo/
 scripts/SWE/openclaw/RTC/output_logs/
+scripts/SWE/openclaw/RTC/output_logs*
 scripts/SWE/openclaw/RTC/include/
 scripts/SWE/openclaw/RTC/__pycache__/
+
+scripts/SWE/openclaw/RTC-FILTER/.cache/
+scripts/SWE/openclaw/RTC-FILTER/repo/
+scripts/SWE/openclaw/RTC-FILTER/output_logs/
+scripts/SWE/openclaw/RTC-FILTER/output_logs*
+scripts/SWE/openclaw/RTC-FILTER/include/
+scripts/SWE/openclaw/RTC-FILTER/__pycache__/
+
 
 scripts/SWE/openclaw/legacy/.cache/
 scripts/SWE/openclaw/legacy/repo/
 scripts/SWE/openclaw/legacy/output_logs/
+scripts/SWE/openclaw/legacy/output_logs*
 scripts/SWE/openclaw/legacy/include/
 scripts/SWE/openclaw/legacy/__pycache__/
 
@@ -56,6 +75,4 @@ workspace.git/
 
 # Artifacts from development tools
 artifacts/
-!artifacts/
-!artifacts/**/
-!artifacts/**/*_CN.md
+

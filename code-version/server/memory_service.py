@@ -4955,23 +4955,6 @@ class MemoryService:
             return {"ok": False, "reason": "missing_command_or_output"}
 
         try:
-            min_chars = int(os.environ.get("RTC_FILTER_BASH_MIN_CHARS") or "8000")
-        except ValueError:
-            min_chars = 8000
-        try:
-            min_lines = int(os.environ.get("RTC_FILTER_BASH_MIN_LINES") or "100")
-        except ValueError:
-            min_lines = 100
-        original_lines = len(output.splitlines())
-        if len(output) < min_chars and original_lines < min_lines:
-            return {
-                "ok": False,
-                "reason": "below_min_size",
-                "original_chars": len(output),
-                "original_lines": original_lines,
-            }
-
-        try:
             from filter.config import filter_enabled
             if not filter_enabled():
                 return {"ok": False, "reason": "filter_disabled"}
@@ -4982,11 +4965,27 @@ class MemoryService:
         if category not in {"test_runner", "python_error", "diff"}:
             return {"ok": False, "reason": "not_whitelisted", "category": category or pre_category}
 
-        filtered, strategy = self._shorten_bash_output(command, output, category)
-        if not filtered or filtered == output:
-            return {"ok": False, "reason": "unchanged", "category": category}
+        try:
+            min_chars = int(os.environ.get("RTC_FILTER_BASH_MIN_CHARS") or "8000")
+        except ValueError:
+            min_chars = 8000
+        try:
+            min_lines = int(os.environ.get("RTC_FILTER_BASH_MIN_LINES") or "100")
+        except ValueError:
+            min_lines = 100
+        original_lines = len(output.splitlines())
+        should_shorten = len(output) >= min_chars or original_lines >= min_lines
+        if should_shorten:
+            filtered, strategy = self._shorten_bash_output(command, output, category)
+            if not filtered:
+                filtered = output
+                strategy = "bash_passthrough_empty_filter"
+        else:
+            filtered = output
+            strategy = "bash_passthrough_below_min_size"
 
         filtered_lines = len(filtered.splitlines())
+        was_shortened = filtered != output
         digest = hashlib.sha256(f"{command}\0{output}".encode("utf-8", errors="replace")).hexdigest()
         routing_key = f"tool_output_bash_{digest[:16]}"
         exit_code = params.get("exit_code")
@@ -4997,6 +4996,7 @@ class MemoryService:
             f"category: {category}",
             f"strategy: {strategy}",
             f"exit_code: {exit_code}",
+            f"was_shortened: {was_shortened}",
             f"original_chars: {len(output)}",
             f"filtered_chars: {len(filtered)}",
             f"original_lines: {original_lines}",
@@ -5025,6 +5025,7 @@ class MemoryService:
                     "command": command,
                     "bash_category": category,
                     "exit_code": exit_code,
+                    "was_shortened": was_shortened,
                     "original_chars": len(output),
                     "shortened_chars": len(filtered),
                     "tokens_saved_estimate": max(0, len(output) - len(filtered)) // 4,
@@ -5043,7 +5044,11 @@ class MemoryService:
 
         banner = "\n".join([
             "### FILTER IS TRIGGERED",
-            "This Bash output was shortened before it reached you.",
+            (
+                "This Bash output was shortened before it reached you."
+                if was_shortened
+                else "This Bash output was captured before it reached you."
+            ),
             "If useful information appears missing, call `get_original_tool_output` with:",
             f"`memory_uri`: `{memory_uri}`",
             f"`category`: `{category}`",
@@ -5056,6 +5061,7 @@ class MemoryService:
             "memory_uri": memory_uri,
             "category": category,
             "strategy": strategy,
+            "was_shortened": was_shortened,
             "original_chars": len(output),
             "filtered_chars": len(filtered_output),
             "original_lines": original_lines,

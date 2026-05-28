@@ -53,15 +53,15 @@ claude --print "hello"
 (cd agfs && make build)
 ```
 
-创建本地 `env.sh`，不要提交真实密钥：
+从模板创建本地 `env.sh`，然后编辑里面的本地配置，不要提交真实密钥：
 
 ```bash
 cp env.sh.example env.sh
-export RTC_EMBEDDING_API_KEY="<your-key>"
-export RTC_EMBEDDING_BASE_URL="https://api.openai-proxy.org"
-export RTC_EMBEDDING_MODEL="text-embedding-3-small"
-export AGFS_BIN="/path/to/retrieval-token-cutter/agfs/build/agfs-server"
+$EDITOR env.sh
 ```
+
+实际使用 RTC 代码搜索时，至少需要设置 `RTC_EMBEDDING_API_KEY`。如果
+`agfs-server` 不在 `PATH` 中，也可以在 `env.sh` 里设置 `AGFS_BIN`。
 
 ## 运行
 

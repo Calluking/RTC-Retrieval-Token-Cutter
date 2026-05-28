@@ -13,6 +13,8 @@ OpenClaw 加载插件时，插件可以自动启动本地 RTC 和 AGFS 服务；
 
 对于代码相关 prompt，插件会注入策略，要求 agent 在大范围读取文件前调用 `rtc_search_code`，并在可行时用 `rtc_edit_file` 修改文件。
 
+启用过滤时，插件还会 hook OpenClaw 原生的 `read` 和 `exec` 调用。整文件读取会被改写到 RTC 生成的过滤后文件；Python/pytest 测试、diff 等白名单长输出命令会被 wrapper 包起来，先经过 RTC 过滤再返回给 agent。被过滤的输出会包含取回原始输出的提示。
+
 ## 安装
 
 在仓库根目录：
@@ -80,11 +82,32 @@ rtc_edit_file
   "rtcUrl": "http://127.0.0.1:8090",
   "autoStart": true,
   "autoStop": true,
-  "injectCodePolicy": true
+  "injectCodePolicy": true,
+  "filterEnabled": true,
+  "filterNativeRead": true,
+  "filterNativeExec": true
 }
 ```
 
 如果不设置 `workspaceRoot`，插件会依次使用 `RTC_WORKSPACE_ROOT` 和 OpenClaw 进程启动目录。
+
+环境变量开关与 Claude 插件保持一致：
+
+```bash
+export RTC_FILTER_ENABLED=1
+export RTC_FILTER_NATIVE_READ=1
+export RTC_FILTER_NATIVE_BASH=1
+```
+
+把任意开关设为 `0`、`false`、`no` 或 `off` 可关闭对应层。
+
+注入 prompt 里的过滤策略说明也和 Claude 一样由同一个变量控制：
+
+```bash
+export RTC_INJECT_FILTERING_PROMPT=1
+```
+
+默认不会把这段策略说明注入 prompt，但实际 filter hook 仍然可用。
 
 ## 启动 OpenClaw
 

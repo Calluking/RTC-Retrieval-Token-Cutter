@@ -5,6 +5,7 @@ import { findRepoRoot, currentPluginRoot } from "./paths.ts";
 import { registerPolicyHook } from "./policy.ts";
 import { RtcService } from "./rtc-service.ts";
 import { registerRtcTools } from "./tools.ts";
+import { registerFilterHooks } from "./filter.ts";
 
 export default definePluginEntry({
   id: "retrieval-token-cutter",
@@ -21,6 +22,9 @@ export default definePluginEntry({
       if (config.autoStart) await service.start();
     });
     registerPolicyHook(api, config);
+    registerFilterHooks(api, config, async () => {
+      if (config.autoStart) await service.start();
+    }, api.logger ?? console);
     if (typeof api.on === "function") {
       if (config.readToolPolicy === "guard") {
         api.on("before_tool_call", (event: any) => {

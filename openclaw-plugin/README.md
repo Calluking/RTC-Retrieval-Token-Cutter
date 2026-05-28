@@ -13,6 +13,12 @@ It can also start the local RTC and AGFS services when OpenClaw loads the plugin
 
 For code-looking prompts, the plugin injects a policy that asks the agent to call `rtc_search_code` before broad file reads and to use `rtc_edit_file` for the patch when practical.
 
+When the filter is enabled, the plugin also hooks native OpenClaw `read` and
+`exec` calls. Full-file reads can be rewritten to an RTC-filtered file, and
+whitelisted long-output commands such as Python/pytest test runs and diffs are
+wrapped so their output goes through RTC before it reaches the agent. Filtered
+outputs include the original-output retrieval hint.
+
 ## Install
 
 From the repository root:
@@ -80,11 +86,34 @@ Useful optional config keys under `plugins.entries.retrieval-token-cutter.config
   "rtcUrl": "http://127.0.0.1:8090",
   "autoStart": true,
   "autoStop": true,
-  "injectCodePolicy": true
+  "injectCodePolicy": true,
+  "filterEnabled": true,
+  "filterNativeRead": true,
+  "filterNativeExec": true
 }
 ```
 
 If `workspaceRoot` is omitted, the plugin uses `RTC_WORKSPACE_ROOT`, then OpenClaw's process working directory.
+
+Environment toggles use the same names as the Claude plugin:
+
+```bash
+export RTC_FILTER_ENABLED=1
+export RTC_FILTER_NATIVE_READ=1
+export RTC_FILTER_NATIVE_BASH=1
+```
+
+Set any of those to `0`, `false`, `no`, or `off` to disable that layer.
+
+The filtering-strategy paragraph in the injected prompt is also controlled the
+same way as Claude:
+
+```bash
+export RTC_INJECT_FILTERING_PROMPT=1
+```
+
+By default it is omitted from the prompt while the actual filter hooks remain
+available.
 
 ## Start OpenClaw
 

@@ -27,14 +27,14 @@ pip install -r requirements.txt
 uv sync --extra mcp --extra swe
 ```
 
-创建本地 `env.sh`：
+从模板创建本地 `env.sh`，然后编辑里面的本地配置：
 
 ```bash
 cp env.sh.example env.sh
-export RTC_EMBEDDING_API_KEY="<your-key>"
-export RTC_EMBEDDING_BASE_URL="https://api.openai-proxy.org"
-export RTC_EMBEDDING_MODEL="text-embedding-3-small"
+$EDITOR env.sh
 ```
+
+实际使用 RTC 代码搜索时，至少需要设置 `RTC_EMBEDDING_API_KEY`。
 
 默认本地 SWE-bench 环境推导依赖 Conda，因为脚本会适配官方 `TestSpec` 环境命令。
 
