@@ -56,4 +56,6 @@ workspace.git/
 
 # Artifacts from development tools
 artifacts/
-
+!artifacts/
+!artifacts/**/
+!artifacts/**/*_CN.md
