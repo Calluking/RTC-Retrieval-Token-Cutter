@@ -74,7 +74,7 @@ export RTC_EMBEDDING_API_KEY="<your-key>"
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
-cp env.sh.example env.sh
+./bootstrap.sh --skip-python --skip-agfs
 make -C agfs build
 ```
 
