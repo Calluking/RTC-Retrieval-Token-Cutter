@@ -4,6 +4,16 @@
 
 # Retrieval Token Cutter
 
+<p align="center">
+  <a href="LICENSE"><img alt="License: MulanPSL-2.0" src="https://img.shields.io/badge/License-MulanPSL--2.0-2ea44f?style=for-the-badge"></a>
+  <a href="pyproject.toml"><img alt="Python 3.11+" src="https://img.shields.io/badge/Python-3.11%2B-3776ab?style=for-the-badge&logo=python&logoColor=white"></a>
+  <a href="pyproject.toml"><img alt="Version 0.1.0" src="https://img.shields.io/badge/Version-0.1.0-0f766e?style=for-the-badge"></a>
+  <a href="claude-plugin/"><img alt="Claude Code plugin" src="https://img.shields.io/badge/Claude%20Code-plugin-6b46c1?style=for-the-badge"></a>
+  <a href="openclaw-plugin/"><img alt="OpenClaw plugin" src="https://img.shields.io/badge/OpenClaw-plugin-2563eb?style=for-the-badge"></a>
+  <a href="filter/"><img alt="RTC filter enabled" src="https://img.shields.io/badge/RTC%20Filter-read%20%2B%20bash-f59e0b?style=for-the-badge"></a>
+  <a href="agfs/"><img alt="AGFS local memory" src="https://img.shields.io/badge/AGFS-local%20memory-14b8a6?style=for-the-badge"></a>
+</p>
+
 Make a local codebase searchable from Claude Code or OpenClaw with semantic code
 search, filtered long outputs, and exact-replacement file edits.
 
