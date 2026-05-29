@@ -17,7 +17,7 @@
 ## 环境要求
 
 - Python 3.11+
-- Claude Code CLI、OpenClaw CLI，或两者都安装
+- Claude Code CLI、OpenClaw CLI，或两者都安装并已登录
 - `agfs-server`，需要在 `PATH` 中，或构建在 `agfs/build/agfs-server`
 - Go 1.21+，如果要从本仓库构建内置 AGFS server
 - OpenAI 兼容的 embedding endpoint 和 API key
@@ -61,7 +61,40 @@ $EDITOR env.sh
 
 不要把真实 API key 提交到公开仓库。
 
+## 全新 clone 快速开始
+
+在一台新机器的新 checkout 中，先准备一次仓库环境：
+
+```bash
+cd /path/to/retrieval-token-cutter
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+cp env.sh.example env.sh
+$EDITOR env.sh
+```
+
+`env.sh` 里至少要填写 `RTC_EMBEDDING_API_KEY`。如果 `agfs-server` 不在
+`PATH` 中，再构建仓库内置版本：
+
+```bash
+(cd agfs && make build)
+```
+
+之后 Claude 和 OpenClaw 的启动方式不同。
+
 ## 启动 Claude
+
+如果本地配置保存在 `env.sh` 中，推荐默认使用 helper 启动：
+
+```bash
+cd /path/to/project
+/path/to/retrieval-token-cutter/claude-plugin/bin/rtc-claude
+```
+
+这个 helper 会先 source `env.sh`，再带上插件目录启动 Claude。
+
+如果你的 shell 已经导出了 RTC 环境变量，也可以直接运行 Claude：
 
 在你希望 Claude 修改的项目目录中运行：
 
@@ -71,13 +104,7 @@ claude --plugin-dir /path/to/retrieval-token-cutter/claude-plugin
 ```
 
 不要传 `--mcp-config`，插件自带 `.mcp.json`。插件会先启动自己的 MCP
-server，RTC/AGFS 后端会在需要时按需启动。如果环境变量只写在 `env.sh`
-里，请改用 helper 启动器：
-
-```bash
-cd /path/to/project
-/path/to/retrieval-token-cutter/claude-plugin/bin/rtc-claude
-```
+server，RTC/AGFS 后端会在需要时按需启动。
 
 然后在 Claude 里直接说：
 
@@ -93,7 +120,6 @@ Fix the bug in the add function
 
 ```bash
 cd /path/to/retrieval-token-cutter
-source setup_env.sh
 openclaw plugins install --link ./openclaw-plugin --dangerously-force-unsafe-install
 openclaw plugins enable retrieval-token-cutter
 openclaw gateway restart
@@ -109,16 +135,23 @@ openclaw plugins install --link ./openclaw-plugin --dangerously-force-unsafe-ins
 
 OpenClaw 要求 `--dangerously-force-unsafe-install`，因为这个插件会通过 Node child process API 自动启动本地 RTC/AGFS 进程。
 
-在你希望 OpenClaw 修改的项目目录中，用新的本地 TUI session 启动：
+在全新 clone 的交互式 OpenClaw 中，不需要 `source setup_env.sh`，也不需要设置
+`RTC_DIR`、`RTC_RUNTIME_DIR` 或 `RTC_WORKSPACE_ROOT`。本地链接插件会自动发现当前
+RTC 仓库，通过 `setup_env.sh` 导入 `env.sh`，启动 RTC/AGFS，并把你启动
+OpenClaw 的目录作为 workspace。
+
+在你希望 OpenClaw 修改的项目目录中启动本地 TUI：
 
 ```bash
 cd /path/to/project
-source /path/to/retrieval-token-cutter/setup_env.sh
-export RTC_WORKSPACE_ROOT="$PWD"
-openclaw chat --local --session "rtc-$(date +%s)"
+openclaw chat --local
 ```
 
-`openclaw chat` 是官方 local embedded TUI 入口，等价于 `openclaw tui --local`。加上新的 `--session` 可以避免复用默认的 `agent:<agent>:main` 历史。
+本地链接插件会从 `./openclaw-plugin` 自动发现 RTC 仓库、自动导入
+`setup_env.sh`、把当前目录作为 workspace，并默认开启 RTC read/exec 过滤。
+`openclaw chat` 是官方 local embedded TUI 入口，等价于 `openclaw tui --local`。
+只有在你明确想要隔离的一次性聊天历史时，才需要额外加
+`--session "rtc-$(date +%s)"`。
 
 然后直接输入：
 
@@ -167,13 +200,16 @@ rtc_edit_file
 
 ```bash
 latest=$(ls -t ~/.openclaw/agents/*/sessions/*.jsonl | grep -v trajectory | head -1)
-rg -n "rtc_search_code|rtc_edit_file|python -m pytest|Fix the bug" "$latest"
+rg -n "Retrieval Token Cutter|FILTER IS TRIGGERED|rtc_search_code|rtc_edit_file" "$latest"
 ```
+
+对于 Claude，可以查看当前 Claude debug log 或 `/plugin` 面板。健康的运行应显示
+插件已连接，并出现包含 `search_code` 和 `edit_file` 的 MCP 工具名。
 
 ## 重要文件
 
 - [env.sh.example](env.sh.example)：本地环境配置模板。复制为已被 git 忽略的 `env.sh`。
-- [setup_env.sh](setup_env.sh)：启动 Claude 前 source 的设置脚本。
+- [setup_env.sh](setup_env.sh)：插件启动器共用的环境加载脚本。
 - [claude-plugin/](claude-plugin/)：本地 Claude Code 插件。
 - [openclaw-plugin/](openclaw-plugin/)：原生 OpenClaw 插件。
 - [claude-plugin/prompts/code_policy_injection.txt](claude-plugin/prompts/code_policy_injection.txt)：自动注入的 MCP 代码策略。

@@ -61,6 +61,11 @@ function asBoolean(value: unknown, fallback: boolean): boolean {
   return fallback;
 }
 
+function truthyEnv(name: string): boolean {
+  const raw = (process.env[name] || "").trim().toLowerCase();
+  return ["1", "true", "yes", "on"].includes(raw);
+}
+
 function asNumber(value: unknown, fallback: number, min: number, max: number): number {
   const parsed = typeof value === "number" ? value : Number(value);
   if (!Number.isFinite(parsed)) return fallback;
@@ -76,20 +81,23 @@ function asReadToolPolicy(value: unknown): string {
 }
 
 export function resolveWorkspaceRoot(config: RtcPluginConfig): string {
+  const respectConfig = truthyEnv("RTC_OPENCLAW_RESPECT_CONFIG");
+  const respectEnvPaths = truthyEnv("RTC_OPENCLAW_RESPECT_ENV_PATHS") || respectConfig;
   const raw =
-    config.workspaceRoot ||
-    process.env.RTC_WORKSPACE_ROOT ||
-    process.env.OPENCLAW_WORKSPACE_ROOT ||
-    process.env.PWD ||
+    (respectEnvPaths ? process.env.RTC_WORKSPACE_ROOT || process.env.OPENCLAW_WORKSPACE_ROOT : undefined) ||
+    (respectConfig && truthyEnv("RTC_OPENCLAW_RESPECT_CONFIG_WORKSPACE") ? config.workspaceRoot : undefined) ||
     process.cwd();
   return resolvePathValue(raw);
 }
 
 export function resolveConfig(config: RtcPluginConfig, pluginRoot: string, repoRoot: string): ResolvedConfig {
-  const rtcUrl = (config.rtcUrl || process.env.RTC_URL || "http://127.0.0.1:8090").replace(/\/+$/, "");
+  const respectConfig = truthyEnv("RTC_OPENCLAW_RESPECT_CONFIG");
+  const respectEnvPaths = truthyEnv("RTC_OPENCLAW_RESPECT_ENV_PATHS") || respectConfig;
+  const effectiveConfig = respectConfig ? config : {};
+  const rtcUrl = (effectiveConfig.rtcUrl || process.env.RTC_URL || "http://127.0.0.1:8090").replace(/\/+$/, "");
   const runtimeDir = resolvePathValue(
-    config.runtimeDir ||
-      process.env.RTC_RUNTIME_DIR ||
+    effectiveConfig.runtimeDir ||
+      (respectEnvPaths ? process.env.RTC_RUNTIME_DIR : undefined) ||
       path.join(os.homedir(), ".cache", "retrieval-token-cutter-openclaw-plugin"),
   );
 
@@ -99,18 +107,18 @@ export function resolveConfig(config: RtcPluginConfig, pluginRoot: string, repoR
     workspaceRoot: resolveWorkspaceRoot(config),
     rtcUrl,
     runtimeDir,
-    autoStart: asBoolean(config.autoStart ?? process.env.RTC_OPENCLAW_AUTO_START, false),
-    autoStop: asBoolean(config.autoStop ?? process.env.RTC_OPENCLAW_AUTO_STOP, false),
-    startWaitSeconds: asNumber(config.startWaitSeconds ?? process.env.RTC_PLUGIN_START_WAIT, 45, 1, 180),
-    injectCodePolicy: asBoolean(config.injectCodePolicy, true),
-    readToolPolicy: asReadToolPolicy(config.readToolPolicy ?? process.env.RTC_OPENCLAW_READ_TOOL_POLICY),
-    filterEnabled: asBoolean(config.filterEnabled ?? process.env.RTC_FILTER_ENABLED, true),
-    filterNativeRead: asBoolean(config.filterNativeRead ?? process.env.RTC_FILTER_NATIVE_READ, true),
-    filterNativeExec: asBoolean(config.filterNativeExec ?? process.env.RTC_FILTER_NATIVE_BASH, true),
-    searchLimit: asNumber(config.searchLimit ?? process.env.RTC_SEARCH_LIMIT, 4, 1, 100),
-    accountId: config.accountId || process.env.RTC_ACCOUNT_ID || "acct-demo",
-    userId: config.userId || process.env.RTC_USER_ID || "u-openclaw",
-    agentId: config.agentId || process.env.RTC_AGENT_ID || "openclaw",
-    sessionId: config.sessionId || process.env.RTC_SESSION_ID,
+    autoStart: asBoolean(effectiveConfig.autoStart ?? process.env.RTC_OPENCLAW_AUTO_START ?? process.env.RTC_PLUGIN_AUTO_START, true),
+    autoStop: asBoolean(effectiveConfig.autoStop ?? process.env.RTC_OPENCLAW_AUTO_STOP ?? process.env.RTC_PLUGIN_AUTO_STOP, true),
+    startWaitSeconds: asNumber(effectiveConfig.startWaitSeconds ?? process.env.RTC_PLUGIN_START_WAIT, 45, 1, 180),
+    injectCodePolicy: asBoolean(effectiveConfig.injectCodePolicy, true),
+    readToolPolicy: asReadToolPolicy(effectiveConfig.readToolPolicy ?? process.env.RTC_OPENCLAW_READ_TOOL_POLICY),
+    filterEnabled: asBoolean(effectiveConfig.filterEnabled ?? process.env.RTC_FILTER_ENABLED, true),
+    filterNativeRead: asBoolean(effectiveConfig.filterNativeRead ?? process.env.RTC_FILTER_NATIVE_READ, true),
+    filterNativeExec: asBoolean(effectiveConfig.filterNativeExec ?? process.env.RTC_FILTER_NATIVE_BASH, true),
+    searchLimit: asNumber(effectiveConfig.searchLimit ?? process.env.RTC_SEARCH_LIMIT, 4, 1, 100),
+    accountId: effectiveConfig.accountId || process.env.RTC_ACCOUNT_ID || "acct-demo",
+    userId: effectiveConfig.userId || process.env.RTC_USER_ID || "u-openclaw",
+    agentId: effectiveConfig.agentId || process.env.RTC_AGENT_ID || "openclaw",
+    sessionId: effectiveConfig.sessionId || process.env.RTC_SESSION_ID,
   };
 }

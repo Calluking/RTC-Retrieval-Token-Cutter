@@ -4,6 +4,10 @@
 #
 # Usage:
 #   source scripts/SWE/claude/RTC/setup_swe_env.sh
+#
+# IMPORTANT: When invoking the agent manually after sourcing this file, cd to
+# the generated SWE workspace first. Starting from the RTC repo root makes
+# native file tools resolve paths against the wrong project.
 
 # Runner defaults
 export CLAUDE_MODEL="${CLAUDE_MODEL:-claude-haiku-4-5-20251001}"

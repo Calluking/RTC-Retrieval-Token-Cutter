@@ -38,7 +38,7 @@
       },
       "workspaceRoot": {
         "type": "string",
-        "description": "Default workspace root for code search/edit. Defaults to RTC_WORKSPACE_ROOT or OpenClaw's current working directory."
+        "description": "Default workspace root for code search/edit. Defaults to OpenClaw's current working directory."
       },
       "rtcUrl": {
         "type": "string",

@@ -4,6 +4,10 @@
 #
 # Usage:
 #   source scripts/SWE/openclaw/RTC/setup_swe_env.sh
+#
+# IMPORTANT: When invoking OpenClaw manually after sourcing this file, cd to the
+# generated SWE workspace first. Starting OpenClaw from the RTC repo root makes
+# native read/exec tools resolve paths against the wrong project.
 
 # Runner defaults
 export OPENCLAW_MODEL="${OPENCLAW_MODEL:-deepseek/deepseek-v4-flash}"

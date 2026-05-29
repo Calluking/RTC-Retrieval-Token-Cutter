@@ -1,5 +1,9 @@
 #!/usr/bin/env bash
 # Source this file to load safe defaults for the plain OpenClaw SWE Lite runner.
+#
+# IMPORTANT: When invoking OpenClaw manually after sourcing this file, cd to the
+# generated SWE workspace first. Starting OpenClaw from the RTC repo root makes
+# native read/exec tools resolve paths against the wrong project.
 
 export OPENCLAW_MODEL="${OPENCLAW_MODEL:-deepseek/deepseek-v4-flash}"
 export SWE_LITE_INSTANCE_ID="${SWE_LITE_INSTANCE_ID:-pallets__flask-4045}"

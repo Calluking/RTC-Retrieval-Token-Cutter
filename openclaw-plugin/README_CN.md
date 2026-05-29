@@ -17,15 +17,27 @@ OpenClaw 加载插件时，插件可以自动启动本地 RTC 和 AGFS 服务；
 
 ## 安装
 
-在仓库根目录：
+在全新 clone 中，先准备一次仓库环境：
 
 ```bash
+cd /path/to/retrieval-token-cutter
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
+cp env.sh.example env.sh
+$EDITOR env.sh
 ```
 
-把 embedding 密钥放在本机 shell 环境里，例如 `~/.bashrc`：
+`env.sh` 里至少要填写 `RTC_EMBEDDING_API_KEY`。OpenClaw 插件加载时会通过
+`setup_env.sh` 自动导入这个文件。
+
+如果 `agfs-server` 不在 `PATH` 中，先构建一次仓库内置版本：
+
+```bash
+(cd agfs && make build)
+```
+
+你也可以把 embedding 密钥放在本机 shell 环境里，例如 `~/.bashrc`：
 
 ```bash
 export RTC_EMBEDDING_API_KEY="<your-key>"
@@ -36,8 +48,6 @@ export RTC_EMBEDDING_MODEL="text-embedding-3-small"
 然后以本地链接方式安装插件：
 
 ```bash
-cd /path/to/retrieval-token-cutter
-source setup_env.sh
 openclaw plugins install --link ./openclaw-plugin --dangerously-force-unsafe-install
 openclaw plugins enable retrieval-token-cutter
 openclaw gateway restart
@@ -61,7 +71,7 @@ child process API 启动本地 RTC/AGFS 服务。对于自动启动能力来说�
 openclaw plugins inspect retrieval-token-cutter --runtime --json
 ```
 
-运行时输出应包含 `status: "loaded"`、服务 `retrieval-token-cutter`，以及这些工具：
+运行时输出应包含 `status: "loaded"` 以及这些工具：
 
 ```text
 rtc_health
@@ -70,11 +80,19 @@ rtc_search_code
 rtc_edit_file
 ```
 
+在全新机器上，这个 inspect 命令不应该再提示缺少 `RTC_DIR` 或
+`RTC_RUNTIME_DIR`。这些值现在由插件自己初始化。
+
 ## 配置
 
-插件默认读取 `setup_env.sh` 和 `env.sh` 里的环境变量。
+正常交互使用不需要额外配置。插件加载时会从本地链接的插件目录自动发现
+RTC 仓库，导入 `setup_env.sh`，在需要时启动 RTC/AGFS，把 OpenClaw 当前启动
+目录作为目标 workspace，并默认开启 read/exec 过滤。
 
-可选 OpenClaw 配置位置为 `plugins.entries.retrieval-token-cutter.config`：
+下面这些是高级覆盖项，配置位置为
+`plugins.entries.retrieval-token-cutter.config`。交互式使用时默认忽略持久化的
+OpenClaw 配置，避免旧 benchmark 设置污染新 chat。设置
+`RTC_OPENCLAW_RESPECT_CONFIG=1` 后才会使用这些值：
 
 ```json
 {
@@ -89,9 +107,13 @@ rtc_edit_file
 }
 ```
 
-如果不设置 `workspaceRoot`，插件会依次使用 `RTC_WORKSPACE_ROOT` 和 OpenClaw 进程启动目录。
+默认情况下，插件使用 OpenClaw 进程启动目录作为 workspace。特殊 harness 如果要使用
+`RTC_WORKSPACE_ROOT` 或 `OPENCLAW_WORKSPACE_ROOT`，需要先设置
+`RTC_OPENCLAW_RESPECT_ENV_PATHS=1`。持久化的 OpenClaw `workspaceRoot` 配置只有同时设置
+`RTC_OPENCLAW_RESPECT_CONFIG=1` 和 `RTC_OPENCLAW_RESPECT_CONFIG_WORKSPACE=1`
+时才会生效，这样可以避免 SWE 跑出来的旧 workspace 泄漏到交互式 session。
 
-环境变量开关与 Claude 插件保持一致：
+环境变量开关与 Claude 插件保持一致。它们只是覆盖默认行为时才需要设置：
 
 ```bash
 export RTC_FILTER_ENABLED=1
@@ -123,14 +145,16 @@ openclaw chat
 openclaw tui --local
 ```
 
-使用 RTC 时，建议在目标项目目录启动，并传入新的 session 名，避免复用 `agent:<agent>:main` 历史：
+使用 RTC 时，在目标项目目录启动即可：
 
 ```bash
 cd /path/to/project
-source /path/to/retrieval-token-cutter/setup_env.sh
-export RTC_WORKSPACE_ROOT="$PWD"
-openclaw chat --local --session "rtc-$(date +%s)"
+openclaw chat --local
 ```
+
+正常交互使用不需要 `source setup_env.sh`，也不需要设置 `RTC_WORKSPACE_ROOT`、
+`RTC_DIR` 或 `RTC_RUNTIME_DIR`。插件会把 `openclaw chat --local` 的启动目录作为
+workspace。
 
 然后正常提问：
 
@@ -146,7 +170,7 @@ TUI 可能会折叠工具调用卡片。终端里没有直接看到 `rtc_search_
 
 ```bash
 latest=$(ls -t ~/.openclaw/agents/*/sessions/*.jsonl | grep -v trajectory | head -1)
-rg -n "rtc_search_code|rtc_edit_file|python -m pytest|Fix the bug" "$latest"
+rg -n "Retrieval Token Cutter|FILTER IS TRIGGERED|rtc_search_code|rtc_edit_file" "$latest"
 ```
 
 一次成功运行通常会包含这样的流程：

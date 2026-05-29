@@ -21,15 +21,28 @@ outputs include the original-output retrieval hint.
 
 ## Install
 
-From the repository root:
+From a fresh clone, prepare the repository once:
 
 ```bash
+cd /path/to/retrieval-token-cutter
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
+cp env.sh.example env.sh
+$EDITOR env.sh
 ```
 
-Keep secret embedding settings in your shell environment, for example in `~/.bashrc`:
+Set at least `RTC_EMBEDDING_API_KEY` in `env.sh`. The OpenClaw plugin imports
+that file automatically through `setup_env.sh` when it loads.
+
+If `agfs-server` is not on `PATH`, build the bundled server once:
+
+```bash
+(cd agfs && make build)
+```
+
+You may also keep secret embedding settings in your shell environment, for
+example in `~/.bashrc`:
 
 ```bash
 export RTC_EMBEDDING_API_KEY="<your-key>"
@@ -40,8 +53,6 @@ export RTC_EMBEDDING_MODEL="text-embedding-3-small"
 Then install the plugin as a linked local plugin:
 
 ```bash
-cd /path/to/retrieval-token-cutter
-source setup_env.sh
 openclaw plugins install --link ./openclaw-plugin --dangerously-force-unsafe-install
 openclaw plugins enable retrieval-token-cutter
 openclaw gateway restart
@@ -65,7 +76,7 @@ Verify it:
 openclaw plugins inspect retrieval-token-cutter --runtime --json
 ```
 
-The runtime output should show `status: "loaded"`, the service `retrieval-token-cutter`, and these tools:
+The runtime output should show `status: "loaded"` and these tools:
 
 ```text
 rtc_health
@@ -74,11 +85,21 @@ rtc_search_code
 rtc_edit_file
 ```
 
+On a fresh machine, this inspect command should not report missing
+`RTC_DIR`/`RTC_RUNTIME_DIR`. Those values are initialized by the plugin now.
+
 ## Configure
 
-The plugin works with environment variables from `setup_env.sh` and `env.sh`.
+For normal interactive use, there is nothing to configure after installation.
+When the plugin loads, it discovers this repository from the linked plugin
+directory, imports `setup_env.sh`, starts RTC/AGFS if needed, uses the current
+OpenClaw working directory as the target workspace, and enables read/exec
+filtering by default.
 
-Useful optional config keys under `plugins.entries.retrieval-token-cutter.config`:
+The settings below are advanced overrides under
+`plugins.entries.retrieval-token-cutter.config`. Persisted OpenClaw config is
+ignored by default during interactive use so old benchmark settings cannot
+poison a new chat. Set `RTC_OPENCLAW_RESPECT_CONFIG=1` to honor these values.
 
 ```json
 {
@@ -93,9 +114,15 @@ Useful optional config keys under `plugins.entries.retrieval-token-cutter.config
 }
 ```
 
-If `workspaceRoot` is omitted, the plugin uses `RTC_WORKSPACE_ROOT`, then OpenClaw's process working directory.
+By default the plugin uses OpenClaw's process working directory as the
+workspace. For special harnesses, set `RTC_OPENCLAW_RESPECT_ENV_PATHS=1` before
+using `RTC_WORKSPACE_ROOT` or `OPENCLAW_WORKSPACE_ROOT`. A persisted OpenClaw
+`workspaceRoot` config value is only honored when both
+`RTC_OPENCLAW_RESPECT_CONFIG=1` and `RTC_OPENCLAW_RESPECT_CONFIG_WORKSPACE=1`,
+which avoids stale SWE-run workspaces leaking into interactive sessions.
 
-Environment toggles use the same names as the Claude plugin:
+Environment toggles use the same names as the Claude plugin. They are optional;
+set them only when you want to override the defaults:
 
 ```bash
 export RTC_FILTER_ENABLED=1
@@ -129,14 +156,16 @@ It is equivalent to:
 openclaw tui --local
 ```
 
-For RTC work, start it from the target project and pass a fresh session name so OpenClaw does not reuse `agent:<agent>:main` history:
+For RTC work, start it from the target project:
 
 ```bash
 cd /path/to/project
-source /path/to/retrieval-token-cutter/setup_env.sh
-export RTC_WORKSPACE_ROOT="$PWD"
-openclaw chat --local --session "rtc-$(date +%s)"
+openclaw chat --local
 ```
+
+No `source setup_env.sh`, `RTC_WORKSPACE_ROOT`, `RTC_DIR`, or
+`RTC_RUNTIME_DIR` is needed for normal interactive use. The plugin uses the
+directory where `openclaw chat --local` starts as the workspace.
 
 Then ask normally:
 
@@ -152,7 +181,7 @@ Find the newest OpenClaw session JSONL and search for RTC tool calls:
 
 ```bash
 latest=$(ls -t ~/.openclaw/agents/*/sessions/*.jsonl | grep -v trajectory | head -1)
-rg -n "rtc_search_code|rtc_edit_file|python -m pytest|Fix the bug" "$latest"
+rg -n "Retrieval Token Cutter|FILTER IS TRIGGERED|rtc_search_code|rtc_edit_file" "$latest"
 ```
 
 A successful run should include a flow like:

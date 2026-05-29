@@ -17,7 +17,7 @@ Make a local codebase searchable from Claude Code or OpenClaw with Retrieval Tok
 ## Requirements
 
 - Python 3.11+
-- Claude Code CLI, OpenClaw CLI, or both
+- Claude Code CLI, OpenClaw CLI, or both, already installed and logged in
 - `agfs-server`, either on `PATH` or built at `agfs/build/agfs-server`
 - Go 1.21+, if you build the bundled AGFS server from this repository
 - An OpenAI-compatible embedding endpoint and API key
@@ -62,7 +62,41 @@ local Conda paths such as `~/miniconda3/bin/python`.
 
 Do not commit real API keys.
 
+## Fresh Clone Quickstart
+
+From a new checkout, prepare the repository once:
+
+```bash
+cd /path/to/retrieval-token-cutter
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+cp env.sh.example env.sh
+$EDITOR env.sh
+```
+
+Set at least `RTC_EMBEDDING_API_KEY` in `env.sh`. If `agfs-server` is not on
+`PATH`, also build the bundled server:
+
+```bash
+(cd agfs && make build)
+```
+
+After that, Claude and OpenClaw use different launch steps.
+
 ## Start Claude
+
+Best default when you keep local values in `env.sh`:
+
+```bash
+cd /path/to/project
+/path/to/retrieval-token-cutter/claude-plugin/bin/rtc-claude
+```
+
+That helper sources `env.sh`, then runs Claude with this plugin directory.
+
+If your shell already exports the RTC environment variables, the direct Claude
+command is also fine:
 
 From the project you want Claude to edit, run exactly:
 
@@ -72,13 +106,7 @@ claude --plugin-dir /path/to/retrieval-token-cutter/claude-plugin
 ```
 
 Do not pass `--mcp-config`; the plugin owns its `.mcp.json`. The plugin starts
-its MCP server immediately and starts the RTC/AGFS backend on demand. If your
-environment variables only live in `env.sh`, use the helper launcher instead:
-
-```bash
-cd /path/to/project
-/path/to/retrieval-token-cutter/claude-plugin/bin/rtc-claude
-```
+its MCP server immediately and starts the RTC/AGFS backend on demand.
 
 Then ask Claude something like:
 
@@ -94,7 +122,6 @@ Install the linked OpenClaw plugin once from this repository:
 
 ```bash
 cd /path/to/retrieval-token-cutter
-source setup_env.sh
 openclaw plugins install --link ./openclaw-plugin --dangerously-force-unsafe-install
 openclaw plugins enable retrieval-token-cutter
 openclaw gateway restart
@@ -110,16 +137,24 @@ openclaw plugins install --link ./openclaw-plugin --dangerously-force-unsafe-ins
 
 OpenClaw requires `--dangerously-force-unsafe-install` because this plugin auto-starts local RTC/AGFS processes through Node's child process API.
 
-From the project you want OpenClaw to edit, start a fresh local TUI session:
+On a fresh clone, no `source setup_env.sh`, `RTC_DIR`, `RTC_RUNTIME_DIR`, or
+`RTC_WORKSPACE_ROOT` is needed for interactive OpenClaw. The linked plugin
+discovers this repository, imports `env.sh` through `setup_env.sh`, starts
+RTC/AGFS, and uses the directory where you start OpenClaw as the workspace.
+
+From the project you want OpenClaw to edit, start the local TUI:
 
 ```bash
 cd /path/to/project
-source /path/to/retrieval-token-cutter/setup_env.sh
-export RTC_WORKSPACE_ROOT="$PWD"
-openclaw chat --local --session "rtc-$(date +%s)"
+openclaw chat --local
 ```
 
-`openclaw chat` is the official local embedded TUI entrypoint. It is equivalent to `openclaw tui --local`. Passing a fresh `--session` avoids reusing the default `agent:<agent>:main` history.
+The linked plugin discovers this repository from `./openclaw-plugin`, imports
+`setup_env.sh` automatically, uses the current directory as the workspace, and
+enables RTC read/exec filtering by default. `openclaw chat` is the official
+local embedded TUI entrypoint. It is equivalent to `openclaw tui --local`.
+Use `--session "rtc-$(date +%s)"` only when you intentionally want an isolated
+throwaway chat history.
 
 Then ask:
 
@@ -168,13 +203,17 @@ To confirm a run used search, inspect the latest session log:
 
 ```bash
 latest=$(ls -t ~/.openclaw/agents/*/sessions/*.jsonl | grep -v trajectory | head -1)
-rg -n "rtc_search_code|rtc_edit_file|python -m pytest|Fix the bug" "$latest"
+rg -n "Retrieval Token Cutter|FILTER IS TRIGGERED|rtc_search_code|rtc_edit_file" "$latest"
 ```
+
+For Claude, inspect the current Claude debug log or the `/plugin` panel. A
+healthy run should show the plugin connected and MCP tool names containing
+`search_code` and `edit_file`.
 
 ## Useful Files
 
 - [env.sh.example](env.sh.example): local environment configuration template. Copy it to ignored `env.sh`.
-- [setup_env.sh](setup_env.sh): one-line setup script used before starting Claude.
+- [setup_env.sh](setup_env.sh): shared environment loader used by the plugin launchers.
 - [claude-plugin/](claude-plugin/): local Claude Code plugin.
 - [openclaw-plugin/](openclaw-plugin/): native OpenClaw plugin.
 - [claude-plugin/prompts/code_policy_injection.txt](claude-plugin/prompts/code_policy_injection.txt): injected MCP coding policy.

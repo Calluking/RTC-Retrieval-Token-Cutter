@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# IMPORTANT: OpenClaw must run from the generated SWE workspace, not the
+# Retrieval-Token-Cutter repo root. If you edit this runner or invoke OpenClaw
+# manually, cd to "$WORK_DIR" before `openclaw agent`/`openclaw chat`;
+# otherwise native read/exec tools can resolve paths against the wrong project.
+
 _SCRIPTS_MCP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 RTC_CACHE_HOME="${RTC_CACHE_HOME:-${XDG_CACHE_HOME:-$HOME/.cache}/retrieval-token-cutter}"
 CACHE_DIR="${SWE_CACHE_DIR:-${RTC_SWE_CACHE_DIR:-$RTC_CACHE_HOME/swe/openclaw/plain/cache}}"
@@ -225,8 +230,14 @@ CANON_LOCK="$LOCKS_DIR/${SWE_INSTANCE_ID}.canon.lock"
     mv "$_canon_tmp" "$CANON_DIR"
   fi
 
-  git -C "$CANON_DIR" fetch --all --prune
+  if [ "${SWE_SKIP_CANON_FETCH:-0}" != "1" ]; then
+    git -C "$CANON_DIR" fetch --all --prune
+  fi
   if ! git -C "$CANON_DIR" rev-parse --verify -q "$SWE_BASE_COMMIT^{commit}" >/dev/null 2>&1; then
+    if [ "${SWE_SKIP_CANON_FETCH:-0}" = "1" ]; then
+      echo "[setup] Missing base commit $SWE_BASE_COMMIT and SWE_SKIP_CANON_FETCH=1 prevents fetching." >&2
+      exit 1
+    fi
     git -C "$CANON_DIR" fetch origin
   fi
   git -C "$CANON_DIR" checkout -f "$SWE_BASE_COMMIT" --
@@ -395,7 +406,7 @@ if [ -n "$SESSION_JSONL" ] && [ -f "$SESSION_JSONL" ]; then
   cp -f "$SESSION_JSONL" "$LOGS_DIR/"
   [ -f "$SESSION_TRAJECTORY_JSONL" ] && cp -f "$SESSION_TRAJECTORY_JSONL" "$LOGS_DIR/"
   [ -f "$SESSION_TRAJECTORY_PATH_JSON" ] && cp -f "$SESSION_TRAJECTORY_PATH_JSON" "$LOGS_DIR/"
-  "$PY_BIN" "$_SCRIPTS_MCP_DIR/render_jsonl_turns.py" "$SESSION_JSONL" > "$EXPERIMENT_DIR/latest_session_render.txt" || true
+  "$PY_BIN" "$_SCRIPTS_MCP_DIR/render_jsonl_turns.py" "$SESSION_JSONL" --stdout-log "$OPENCLAW_STDOUT" > "$EXPERIMENT_DIR/latest_session_render.txt" || true
 	  "$PY_BIN" - "$SESSION_JSONL" "$EXPERIMENT_DIR/openclaw_tool_summary.json" <<'PY' || true
 import json
 import sys

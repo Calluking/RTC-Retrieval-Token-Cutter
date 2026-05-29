@@ -64,6 +64,11 @@ def parse_args() -> argparse.Namespace:
         default=0,
         help="Max chars to print for large text blocks; 0 disables truncation",
     )
+    parser.add_argument(
+        "--stdout-log",
+        type=Path,
+        help="Optional OpenClaw stdout log to append as run status.",
+    )
     return parser.parse_args()
 
 
@@ -143,9 +148,18 @@ def main() -> int:
                     print(f"[tool_call] {item.get('name') or '(unknown)'} line={line_no}")
                     print(_shorten(_json_pretty(item.get("arguments")), args.max_chars))
 
+            if message.get("stopReason") == "error" or message.get("errorMessage"):
+                print("[error]")
+                print(_shorten(str(message.get("errorMessage") or "assistant stopped with error"), args.max_chars))
+
+    if args.stdout_log and args.stdout_log.is_file():
+        text = args.stdout_log.read_text(encoding="utf-8", errors="replace").strip()
+        if text:
+            print("\n=== Run Status ===")
+            print(_shorten(text, args.max_chars))
+
     return 0
 
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

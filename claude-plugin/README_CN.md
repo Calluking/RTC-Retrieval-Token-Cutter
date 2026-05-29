@@ -22,14 +22,13 @@ Claude 通过 `--plugin-dir` 加载这个插件。插件会启动内置 MCP serv
 
 ## 配置
 
-先把仓库根目录的 [../env.sh.example](../env.sh.example) 复制为 `../env.sh`，
-然后编辑里面的本地配置。插件目录里的 [setup_env.sh](setup_env.sh) 只是转发到
-[../setup_env.sh](../setup_env.sh)。
-
-需要填写：
+在全新 clone 中，先安装仓库 Python 依赖，并创建被 git 忽略的本地环境文件：
 
 ```bash
-cd ..
+cd /path/to/retrieval-token-cutter
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
 cp env.sh.example env.sh
 $EDITOR env.sh
 ```
@@ -39,9 +38,31 @@ $EDITOR env.sh
 `pyagfs` 的 Python。MCP 启动器也会检查常见本地 Conda 路径，例如
 `~/miniconda3/bin/python`。
 
+如果 `agfs-server` 不在 `PATH` 中，先构建一次仓库内置 AGFS server：
+
+```bash
+(cd agfs && make build)
+```
+
+插件目录里的 [setup_env.sh](setup_env.sh) 只是转发到
+[../setup_env.sh](../setup_env.sh)，后者会 source 被 git 忽略的 `env.sh`。
+
 ## 启动 Claude
 
-在 Claude 要修改的项目目录里运行：
+如果本地配置在 `env.sh` 中，推荐命令是：
+
+```bash
+cd /path/to/project
+/path/to/retrieval-token-cutter/claude-plugin/bin/rtc-claude
+```
+
+这个 helper 会先加载仓库环境，然后运行：
+
+```bash
+claude --plugin-dir /path/to/retrieval-token-cutter/claude-plugin
+```
+
+如果你的 shell 已经导出了同样的环境变量，也可以在 Claude 要修改的项目目录中直接运行：
 
 ```bash
 cd /path/to/project
@@ -49,14 +70,6 @@ claude --plugin-dir /path/to/retrieval-token-cutter/claude-plugin
 ```
 
 不要传 `--mcp-config`，插件自带 `.mcp.json`。
-
-如果环境变量只写在被 git 忽略的 `env.sh` 里，请使用 helper 启动器，
-这样启动 Claude 前会先 source 它：
-
-```bash
-cd /path/to/project
-/path/to/retrieval-token-cutter/claude-plugin/bin/rtc-claude
-```
 
 插件 MCP 入口、hooks 和手动命令都会尊重 `PY_BIN`。如果没有设置 `PY_BIN`，
 它们会依次尝试仓库 `.venv`、常见本地 Conda 路径，以及 `PATH` 上的
@@ -89,6 +102,10 @@ Fix the bug in the add function
 mcp__plugin_retrieval-token-cutter_retrieval-token-cutter__search_code
 mcp__plugin_retrieval-token-cutter_retrieval-token-cutter__edit_file
 ```
+
+如果状态提示缺少 `RTC_DIR` 或 `RTC_RUNTIME_DIR` 等环境变量，请从当前 checkout
+重新用 `claude-plugin/bin/rtc-claude` 启动 Claude。不要额外传 `--mcp-config`；
+插件自带的 `.mcp.json` 才是支持的路径。
 
 过滤策略说明由 `RTC_INJECT_FILTERING_PROMPT` 控制。设为 `1` 时，交互式
 Claude 会注入该段说明：

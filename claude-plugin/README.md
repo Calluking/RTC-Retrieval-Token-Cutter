@@ -22,14 +22,14 @@ Claude loads this plugin with `--plugin-dir`. The plugin starts the bundled MCP 
 
 ## Configure
 
-Copy the repository-level [../env.sh.example](../env.sh.example) to `../env.sh`,
-then edit it with your local values. The plugin wrapper [setup_env.sh](setup_env.sh)
-simply sources [../setup_env.sh](../setup_env.sh).
-
-Required values:
+From a fresh clone, install the repository Python dependencies and create the
+ignored local environment file:
 
 ```bash
-cd ..
+cd /path/to/retrieval-token-cutter
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
 cp env.sh.example env.sh
 $EDITOR env.sh
 ```
@@ -39,9 +39,32 @@ the repository `.venv`, set `PY_BIN` to a Python that can import `flask`,
 `mcp`, `openai`, and `pyagfs`. The MCP launcher also checks common local Conda
 paths such as `~/miniconda3/bin/python`.
 
+If `agfs-server` is not on `PATH`, build the bundled AGFS server once:
+
+```bash
+(cd agfs && make build)
+```
+
+The plugin wrapper [setup_env.sh](setup_env.sh) simply sources
+[../setup_env.sh](../setup_env.sh), which in turn sources the ignored `env.sh`.
+
 ## Start Claude
 
-From the project Claude should edit:
+Recommended command when your values are in `env.sh`:
+
+```bash
+cd /path/to/project
+/path/to/retrieval-token-cutter/claude-plugin/bin/rtc-claude
+```
+
+That helper sources the repository environment and then runs:
+
+```bash
+claude --plugin-dir /path/to/retrieval-token-cutter/claude-plugin
+```
+
+If your shell already exports the same environment values, you can run Claude
+directly from the project Claude should edit:
 
 ```bash
 cd /path/to/project
@@ -49,14 +72,6 @@ claude --plugin-dir /path/to/retrieval-token-cutter/claude-plugin
 ```
 
 Do not pass `--mcp-config`; this plugin owns its `.mcp.json`.
-
-If your environment values only live in the ignored `env.sh`, use the helper
-launcher so they are sourced before Claude starts:
-
-```bash
-cd /path/to/project
-/path/to/retrieval-token-cutter/claude-plugin/bin/rtc-claude
-```
 
 The plugin MCP entrypoint and hook/manual commands honor `PY_BIN`. Without
 `PY_BIN`, they try the repository `.venv`, common local Conda locations, and
@@ -89,6 +104,11 @@ The `UserPromptSubmit` hook injects the rendered [prompts/code_policy_injection.
 mcp__plugin_retrieval-token-cutter_retrieval-token-cutter__search_code
 mcp__plugin_retrieval-token-cutter_retrieval-token-cutter__edit_file
 ```
+
+If the status says environment variables such as `RTC_DIR` or
+`RTC_RUNTIME_DIR` are missing, restart Claude with `claude-plugin/bin/rtc-claude`
+from this checkout. Do not add a separate `--mcp-config`; the plugin's own
+`.mcp.json` is the supported path.
 
 The filtering-strategy section is controlled by `RTC_INJECT_FILTERING_PROMPT`.
 Set it to `1` to include that section in interactive Claude sessions:

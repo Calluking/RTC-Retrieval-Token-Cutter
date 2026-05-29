@@ -1,5 +1,9 @@
 #!/usr/bin/env bash
 # Source this file to load safe defaults for the plain Claude SWE Lite runner.
+#
+# IMPORTANT: When invoking the agent manually after sourcing this file, cd to
+# the generated SWE workspace first. Starting from the RTC repo root makes
+# native file tools resolve paths against the wrong project.
 
 export CLAUDE_MODEL="${CLAUDE_MODEL:-claude-haiku-4-5-20251001}"
 export SWE_LITE_INSTANCE_ID="${SWE_LITE_INSTANCE_ID:-pallets__flask-4045}"

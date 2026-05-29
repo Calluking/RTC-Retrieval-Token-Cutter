@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# IMPORTANT: Agent commands must run from the generated SWE workspace, not the
+# Retrieval-Token-Cutter repo root. If you edit this runner or invoke the agent
+# manually, cd to "$WORK_DIR" first; otherwise native file tools can resolve
+# paths against the wrong project.
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 RTC_CACHE_HOME="${RTC_CACHE_HOME:-${XDG_CACHE_HOME:-$HOME/.cache}/retrieval-token-cutter}"
 CACHE_DIR="${SWE_CACHE_DIR:-${RTC_SWE_CACHE_DIR:-$RTC_CACHE_HOME/swe/plain/cache}}"
