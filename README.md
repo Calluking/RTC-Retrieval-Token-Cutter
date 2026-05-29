@@ -36,8 +36,8 @@ for you, then stop the services they started when the host exits.
 ## Requirements
 
 - Python 3.11+
-- Go 1.21+
-- Claude Code CLI, OpenClaw CLI, or both, already installed and logged in
+- Go 1.22+
+- Claude Code CLI, OpenClaw CLI, or both
 - An OpenAI-compatible embedding endpoint and API key
 - Conda, only if you use the SWE runner's default local validation environment
 
@@ -48,13 +48,33 @@ Prepare a fresh checkout once:
 ```bash
 cd /path/to/retrieval-token-cutter
 ./bootstrap.sh
-$EDITOR env.sh
 ```
 
-Set at least this value in `env.sh`:
+`bootstrap.sh` is interactive for setup steps: if Ubuntu packages or Python
+`.venv` are missing, it asks before installing anything. It also checks whether
+OpenClaw and Claude Code are installed, then asks which integration to set up.
+It creates `env.sh` if missing, but it does not ask you to type API
+keys into the installer.
+
+Edit `env.sh`, fill the variables at the top, then load them:
+
+```bash
+$EDITOR env.sh
+source env.sh
+```
+
+Set at least this value:
 
 ```bash
 export RTC_EMBEDDING_API_KEY="<your-key>"
+```
+
+For OpenClaw, also set the agent model provider. For a DeepSeek setup:
+
+```bash
+export OPENAI_API_KEY="<your-deepseek-key>"
+export OPENAI_BASE_URL="https://api.deepseek.com"
+export OPENCLAW_MODEL="deepseek/deepseek-v4-flash"
 ```
 
 `./bootstrap.sh` creates `.venv`, installs `requirements.txt`, creates `env.sh`
@@ -101,35 +121,32 @@ Do not pass `--mcp-config`; the Claude plugin owns its `.mcp.json`.
 
 ## Start OpenClaw
 
-Install the linked OpenClaw plugin once:
+If you chose OpenClaw setup during bootstrap, start OpenClaw from the project
+you want to edit:
 
 ```bash
-cd /path/to/retrieval-token-cutter
-./bootstrap.sh --install-openclaw-plugin
-```
-
-Equivalent manual commands:
-
-```bash
-openclaw plugins install --link ./openclaw-plugin --dangerously-force-unsafe-install
-openclaw plugins enable retrieval-token-cutter
-openclaw gateway restart
+cd /path/to/project
+openclaw chat
 ```
 
 OpenClaw requires `--dangerously-force-unsafe-install` because this plugin
 auto-starts local RTC/AGFS processes through Node's child process API.
+If `OPENCLAW_MODEL` and `OPENCLAW_API_KEY` or `OPENAI_API_KEY` are present,
+`bootstrap.sh` also creates the OpenClaw auth profile and selects that model.
+If credentials are still missing, it prints the one follow-up command:
+`openclaw configure`.
 
-Then start OpenClaw from the project you want to edit:
+To install or relink OpenClaw later:
 
 ```bash
-cd /path/to/project
-openclaw chat --local
+cd /path/to/retrieval-token-cutter
+source env.sh
+./bootstrap.sh --install-openclaw-plugin
 ```
 
 No `source setup_env.sh`, `RTC_DIR`, `RTC_RUNTIME_DIR`, or `RTC_WORKSPACE_ROOT`
 is needed for normal interactive use. The linked plugin discovers this repo,
-loads `env.sh`, starts RTC/AGFS, and uses the directory where you start
-OpenClaw as the workspace.
+loads `env.sh`, starts RTC/AGFS, and uses OpenClaw's active workspace.
 
 ## Verify
 
@@ -176,7 +193,7 @@ healthy code run should show MCP tool names containing `search_code` and
 
 ## Configuration
 
-Local settings live in ignored [env.sh](env.sh.example). Do not commit real API
+Local settings live in ignored `env.sh`. Do not commit real API
 keys.
 
 Common settings:
@@ -197,7 +214,6 @@ traffic bypasses HTTP(S)/SOCKS proxies.
 ## Useful Files
 
 - [bootstrap.sh](bootstrap.sh): one-command local setup.
-- [env.sh.example](env.sh.example): local environment template.
 - [setup_env.sh](setup_env.sh): shared environment loader.
 - [claude-plugin/prompts/code_policy_injection.txt](claude-plugin/prompts/code_policy_injection.txt): Claude policy prompt.
 - [openclaw-plugin/prompts/code_policy_injection.txt](openclaw-plugin/prompts/code_policy_injection.txt): OpenClaw policy prompt.

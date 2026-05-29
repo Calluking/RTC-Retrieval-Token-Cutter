@@ -169,7 +169,7 @@ rg -n "Retrieval Token Cutter|FILTER IS TRIGGERED|rtc_search_code|rtc_edit_file"
 
 ## 配置
 
-本地配置放在被 git 忽略的 [env.sh](env.sh.example) 中。不要提交真实 API key。
+本地配置放在被 git 忽略的 `env.sh` 中。不要提交真实 API key。
 
 常用配置：
 
@@ -189,7 +189,6 @@ RTC/AGFS 请求走 HTTP(S)/SOCKS 代理。
 ## 重要文件
 
 - [bootstrap.sh](bootstrap.sh)：一行命令完成本地准备。
-- [env.sh.example](env.sh.example)：本地环境配置模板。
 - [setup_env.sh](setup_env.sh)：共用环境加载脚本。
 - [claude-plugin/prompts/code_policy_injection.txt](claude-plugin/prompts/code_policy_injection.txt)：Claude 策略 prompt。
 - [openclaw-plugin/prompts/code_policy_injection.txt](openclaw-plugin/prompts/code_policy_injection.txt)：OpenClaw 策略 prompt。

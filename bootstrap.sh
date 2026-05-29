@@ -8,6 +8,9 @@ FORCE_AGFS=0
 SKIP_PYTHON=0
 SKIP_AGFS=0
 INSTALL_OPENCLAW=0
+INSTALL_CLAUDE=0
+INSTALL_SYSTEM_DEPS=1
+ASSUME_YES=0
 
 usage() {
   cat <<'EOF'
@@ -16,14 +19,17 @@ Usage: ./bootstrap.sh [options]
 Prepare a fresh Retrieval Token Cutter checkout for local Claude/OpenClaw use.
 
 Options:
+  -y, --yes                 Accept recommended installer prompts.
+  --no-system-deps          Do not auto-install missing Ubuntu packages.
   --force-agfs              Rebuild agfs/build/agfs-server even if it exists.
   --skip-python             Do not create .venv or install requirements.txt.
   --skip-agfs               Do not build the bundled AGFS server.
   --install-openclaw-plugin Install and enable the linked OpenClaw plugin.
+  --install-claude-cli      Install Claude Code CLI if missing.
   -h, --help                Show this help.
 
-The script creates env.sh from env.sh.example if env.sh does not exist.
-You still need to edit env.sh and set RTC_EMBEDDING_API_KEY before real code search.
+The script creates env.sh if env.sh does not exist.
+After bootstrap finishes, edit env.sh, then run: source env.sh
 EOF
 }
 
@@ -36,8 +42,361 @@ die() {
   exit 1
 }
 
+prompt_yes_no() {
+  local prompt="$1"
+  local default="${2:-y}"
+  local answer suffix
+
+  if [ "$ASSUME_YES" -eq 1 ]; then
+    log "$prompt $default"
+    [ "$default" = "y" ]
+    return
+  fi
+
+  if [ "$default" = "y" ]; then
+    suffix="[Y/n]"
+  else
+    suffix="[y/N]"
+  fi
+
+  printf '[bootstrap] %s %s ' "$prompt" "$suffix"
+  read -r answer || answer=""
+  answer="${answer:-$default}"
+  case "$answer" in
+    y|Y|yes|YES|Yes) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+have() {
+  command -v "$1" >/dev/null 2>&1
+}
+
+run_apt() {
+  if [ "$(id -u)" -eq 0 ]; then
+    DEBIAN_FRONTEND=noninteractive apt-get "$@"
+  elif have sudo; then
+    sudo DEBIAN_FRONTEND=noninteractive apt-get "$@"
+  else
+    return 1
+  fi
+}
+
+ensure_system_deps() {
+  [ "$INSTALL_SYSTEM_DEPS" -eq 1 ] || return 0
+  have apt-get || return 0
+
+  local missing=0
+  local cmd
+  for cmd in curl git make rg go "$PYTHON_BIN"; do
+    if ! have "$cmd"; then
+      missing=1
+    fi
+  done
+
+  if have "$PYTHON_BIN" && ! "$PYTHON_BIN" -m venv --help >/dev/null 2>&1; then
+    missing=1
+  fi
+
+  if [ "$missing" -eq 0 ]; then
+    log "system packages look ready"
+    return 0
+  fi
+
+  log "installing missing Ubuntu packages"
+  prompt_yes_no "Missing Ubuntu packages are required. Install them with apt-get now?" "y" || \
+    die "missing system packages; install python3 python3-venv python3-pip make git curl ripgrep golang-go"
+  run_apt update || die "missing system packages and cannot run apt-get; install python3 python3-venv python3-pip make git curl ripgrep golang-go"
+  run_apt install -y \
+    ca-certificates curl git make build-essential ripgrep \
+    python3 python3-venv python3-pip golang-go || die "failed to install Ubuntu packages"
+}
+
+ensure_openclaw_cli() {
+  have openclaw && return 0
+
+  if [ -x "$HOME/.openclaw/bin/openclaw" ]; then
+    export PATH="$HOME/.openclaw/bin:$PATH"
+    if [ "$(id -u)" -eq 0 ] || [ -w /usr/local/bin ]; then
+      ln -sf "$HOME/.openclaw/bin/openclaw" /usr/local/bin/openclaw
+    else
+      mkdir -p "$HOME/.local/bin"
+      ln -sf "$HOME/.openclaw/bin/openclaw" "$HOME/.local/bin/openclaw"
+      export PATH="$HOME/.local/bin:$PATH"
+    fi
+    have openclaw && return 0
+  fi
+
+  have curl || die "missing curl; cannot install OpenClaw CLI"
+  log "installing OpenClaw CLI"
+  curl -fsSL https://openclaw.ai/install-cli.sh | bash
+  export PATH="$HOME/.local/bin:$HOME/.openclaw/bin:$PATH"
+  if [ -x "$HOME/.openclaw/bin/openclaw" ]; then
+    if [ "$(id -u)" -eq 0 ] || [ -w /usr/local/bin ]; then
+      ln -sf "$HOME/.openclaw/bin/openclaw" /usr/local/bin/openclaw
+    else
+      mkdir -p "$HOME/.local/bin"
+      ln -sf "$HOME/.openclaw/bin/openclaw" "$HOME/.local/bin/openclaw"
+    fi
+  fi
+  have openclaw || die "OpenClaw installer finished, but openclaw is not on PATH; open a new shell or add the installer path to PATH"
+}
+
+node_major_version() {
+  node -v 2>/dev/null | sed -E 's/^v([0-9]+).*/\1/'
+}
+
+ensure_node_npm() {
+  if have node && have npm; then
+    local node_major
+    node_major="$(node_major_version)"
+    if [ -n "$node_major" ] && [ "$node_major" -ge 18 ]; then
+      return 0
+    fi
+  fi
+
+  have apt-get || die "missing Node.js/npm; install Node.js 18+ and npm, then rerun bootstrap"
+  prompt_yes_no "Claude Code needs Node.js 18+ and npm. Install Ubuntu nodejs/npm packages now?" "y" || \
+    die "missing Node.js/npm for Claude Code CLI"
+  run_apt update || die "cannot run apt-get update for nodejs/npm"
+  run_apt install -y nodejs npm || die "failed to install nodejs/npm"
+
+  local node_major
+  node_major="$(node_major_version)"
+  if [ -z "$node_major" ] || [ "$node_major" -lt 18 ]; then
+    die "Claude Code requires Node.js 18+; found $(node -v 2>/dev/null || printf missing)"
+  fi
+}
+
+run_npm_global_install() {
+  if [ "$(id -u)" -eq 0 ]; then
+    npm install -g "$@"
+  elif have sudo; then
+    sudo npm install -g "$@"
+  else
+    npm install -g "$@"
+  fi
+}
+
+ensure_claude_cli() {
+  have claude && return 0
+
+  ensure_node_npm
+  log "installing Claude Code CLI"
+  run_npm_global_install @anthropic-ai/claude-code
+  have claude || die "Claude Code installer finished, but claude is not on PATH"
+}
+
+prepare_openclaw_plugin_dir() {
+  PLUGIN_DIR="$ROOT_DIR/openclaw-plugin"
+  local plugin_uid
+  plugin_uid="$(stat -c '%u' "$PLUGIN_DIR" 2>/dev/null || id -u)"
+  if [ "$plugin_uid" = "$(id -u)" ]; then
+    return 0
+  fi
+
+  PLUGIN_DIR="${RTC_OPENCLAW_PLUGIN_DIR:-$HOME/.cache/retrieval-token-cutter/openclaw-plugin}"
+  local cache_root
+  cache_root="$(dirname "$PLUGIN_DIR")"
+  log "copying OpenClaw plugin to current-user-owned path: $PLUGIN_DIR"
+  rm -rf "$PLUGIN_DIR"
+  mkdir -p "$PLUGIN_DIR"
+  tar -C "$ROOT_DIR/openclaw-plugin" -cf - . | tar --no-same-owner -C "$PLUGIN_DIR" -xf -
+
+  # Keep the linked plugin user-owned while letting it auto-detect the source tree.
+  mkdir -p "$cache_root"
+  ln -sfn "$ROOT_DIR/claude-plugin" "$cache_root/claude-plugin"
+  ln -sfn "$ROOT_DIR/server" "$cache_root/server"
+  ln -sfn "$ROOT_DIR/agfs" "$cache_root/agfs"
+  ln -sfn "$ROOT_DIR/.venv" "$cache_root/.venv"
+  ln -sfn "$ROOT_DIR/env.sh" "$cache_root/env.sh"
+  ln -sfn "$ROOT_DIR/setup_env.sh" "$cache_root/setup_env.sh"
+  if [ -d "$ROOT_DIR/code-version" ]; then
+    ln -sfn "$ROOT_DIR/code-version" "$cache_root/code-version"
+  fi
+}
+
+load_local_env() {
+  set +e +u
+  if [ -f "$ROOT_DIR/setup_env.sh" ]; then
+    # shellcheck disable=SC1091
+    source "$ROOT_DIR/setup_env.sh" >/dev/null 2>&1
+  elif [ -f "$ROOT_DIR/env.sh" ]; then
+    # shellcheck disable=SC1091
+    source "$ROOT_DIR/env.sh" >/dev/null 2>&1
+  fi
+  set -e -u
+  return 0
+}
+
+openclaw_provider_from_model() {
+  local model="${OPENCLAW_MODEL:-}"
+  if [ -n "${OPENCLAW_PROVIDER:-}" ]; then
+    printf '%s\n' "$OPENCLAW_PROVIDER"
+  elif [ "$model" != "${model#*/}" ]; then
+    printf '%s\n' "${model%%/*}"
+  else
+    printf '%s\n' "openai"
+  fi
+}
+
+ensure_go_version() {
+  have go || die "missing Go; install Go 1.22+ or rerun with --skip-agfs"
+
+  local version major minor
+  version="$(go version | awk '{print $3}')"
+  version="${version#go}"
+  major="${version%%.*}"
+  minor="${version#*.}"
+  minor="${minor%%.*}"
+
+  if ! [[ "$major" =~ ^[0-9]+$ && "$minor" =~ ^[0-9]+$ ]]; then
+    die "could not parse Go version from: $(go version)"
+  fi
+  if [ "$major" -lt 1 ] || { [ "$major" -eq 1 ] && [ "$minor" -lt 22 ]; }; then
+    die "Go 1.22+ is required to build AGFS; found $(go version). Install a newer Go or rerun with --skip-agfs"
+  fi
+}
+
+ensure_openclaw_model_auth() {
+  [ "$INSTALL_OPENCLAW" -eq 1 ] || return 0
+  [ -n "${OPENCLAW_MODEL:-}" ] || return 0
+
+  local provider api_key profile
+  provider="$(openclaw_provider_from_model)"
+  api_key="${OPENCLAW_API_KEY:-${OPENAI_API_KEY:-}}"
+  profile="${OPENCLAW_AUTH_PROFILE:-$provider:manual}"
+
+  if [ -n "$api_key" ]; then
+    if ! openclaw models auth list 2>/dev/null | grep -q "$profile"; then
+      log "configuring OpenClaw auth profile $profile"
+      printf '%s\n' "$api_key" | openclaw models auth paste-api-key --provider "$provider" --profile-id "$profile" >/dev/null
+    fi
+  fi
+
+  log "setting OpenClaw default model to $OPENCLAW_MODEL"
+  openclaw models set "$OPENCLAW_MODEL" >/dev/null || true
+}
+
+verify_openclaw_runtime() {
+  local inspect
+  if ! inspect="$(openclaw plugins inspect retrieval-token-cutter --runtime --json 2>&1)"; then
+    printf '%s\n' "$inspect" >&2
+    die "OpenClaw plugin installed but runtime inspection failed"
+  fi
+  printf '%s\n' "$inspect" | grep -q "rtc_search_code" || die "OpenClaw plugin loaded, but rtc_search_code was not visible"
+  printf '%s\n' "$inspect" | grep -q "rtc_edit_file" || die "OpenClaw plugin loaded, but rtc_edit_file was not visible"
+  log "OpenClaw plugin runtime verified"
+}
+
+warn_openclaw_auth() {
+  local status
+  status="$(openclaw models status 2>&1 || true)"
+  if printf '%s\n' "$status" | grep -Eiq 'missing|not configured|no configured|no model|No API key'; then
+    log "OpenClaw model auth is not configured yet; run: openclaw configure"
+  fi
+}
+
+create_env_file() {
+  cat > "$ROOT_DIR/env.sh" <<'EOF'
+#!/usr/bin/env bash
+# Local Retrieval Token Cutter Claude/OpenClaw configuration.
+# env.sh is ignored by git so real API keys and local paths stay local.
+
+# === Fill These In First ===
+# Required for RTC semantic code search. Paste your embedding API key here.
+export RTC_EMBEDDING_API_KEY=""
+
+# Required for RTC semantic code search. Set your embedding provider endpoint.
+export RTC_EMBEDDING_BASE_URL=""
+
+# Required for RTC semantic code search. Set your embedding model name.
+export RTC_EMBEDDING_MODEL=""
+
+# Required for OpenClaw model auth. Paste your chat/model API key here.
+export OPENAI_API_KEY=""
+
+# Required for OpenClaw model auth. Set your OpenAI-compatible chat endpoint.
+export OPENAI_BASE_URL="https://api.deepseek.com"
+
+# Required for OpenClaw model auth. Set the model id OpenClaw should use.
+export OPENCLAW_MODEL="deepseek/deepseek-v4-flash"
+
+# Python used by the plugin MCP server and local Retrieval Token Cutter backend.
+# Leave empty to let setup_env.sh auto-detect .venv/bin/python or python3.
+export PY_BIN="${PY_BIN:-}"
+
+# Embeddings. OpenAI-compatible endpoints are supported.
+export EMBEDDING_PROVIDER="${EMBEDDING_PROVIDER:-openai}"
+
+# Local service ports used by the plugin auto-start flow.
+export RTC_HTTP_PORT="${RTC_HTTP_PORT:-8090}"
+export AGFS_HTTP_PORT="${AGFS_HTTP_PORT:-1833}"
+export RTC_URL="${RTC_URL:-http://127.0.0.1:${RTC_HTTP_PORT}}"
+export AGFS_BASE_URL="${AGFS_BASE_URL:-http://127.0.0.1:${AGFS_HTTP_PORT}}"
+
+# Auto-start AGFS/Retrieval Token Cutter when Claude loads the plugin, and stop them on exit.
+export RTC_PLUGIN_AUTO_START="${RTC_PLUGIN_AUTO_START:-1}"
+export RTC_PLUGIN_AUTO_STOP="${RTC_PLUGIN_AUTO_STOP:-1}"
+
+# Filter toggle. Set to 0/false/no/off to run the pre-filter data flow.
+export RTC_FILTER_ENABLED="${RTC_FILTER_ENABLED:-1}"
+
+# Prompt toggle. Set to 1/true/yes/on to inject the filtering strategy section
+# into Claude's code-policy prompt. The plain RTC SWE runner defaults this off;
+# the RTC-FILTER SWE runner defaults it on.
+export RTC_INJECT_FILTERING_PROMPT="${RTC_INJECT_FILTERING_PROMPT:-0}"
+
+# Code-search defaults.
+export VECTOR_DB_TYPE="${VECTOR_DB_TYPE:-memory}"
+export RTC_CODE_TOGGLE="${RTC_CODE_TOGGLE:-true}"
+export RTC_CODE_SEARCH_CANDIDATE_MAX_FILES="${RTC_CODE_SEARCH_CANDIDATE_MAX_FILES:-80}"
+export RTC_CODE_SEARCH_EMBED_MAX_FILES="${RTC_CODE_SEARCH_EMBED_MAX_FILES:-80}"
+export RTC_CODE_SEARCH_MAX_SNIPPETS="${RTC_CODE_SEARCH_MAX_SNIPPETS:-500}"
+export RTC_CODE_FUSE_MODE="${RTC_CODE_FUSE_MODE:-weighted_rrf}"
+export RTC_CODE_FUSE_W_EMBED="${RTC_CODE_FUSE_W_EMBED:-0.33}"
+export RTC_CODE_FUSE_W_BM25="${RTC_CODE_FUSE_W_BM25:-0.17}"
+export RTC_CODE_FUSE_W_CTAGS="${RTC_CODE_FUSE_W_CTAGS:-0.17}"
+export RTC_CODE_FUSE_W_GRAPH="${RTC_CODE_FUSE_W_GRAPH:-0.33}"
+export RTC_BOOTSTRAP_MAX_FILES="${RTC_BOOTSTRAP_MAX_FILES:-40}"
+export RTC_BOOTSTRAP_FULL_INDEX_CAP_FILES="${RTC_BOOTSTRAP_FULL_INDEX_CAP_FILES:-40}"
+EOF
+}
+
+select_integrations() {
+  if have openclaw; then
+    log "OpenClaw CLI found: $(command -v openclaw)"
+  else
+    log "OpenClaw CLI not found"
+  fi
+
+  if have claude; then
+    log "Claude Code CLI found: $(command -v claude)"
+  else
+    log "Claude Code CLI not found"
+  fi
+
+  if [ "$INSTALL_CLAUDE" -eq 0 ]; then
+    if prompt_yes_no "Set up Claude Code CLI/helper now?" "n"; then
+      INSTALL_CLAUDE=1
+    fi
+  fi
+
+  if [ "$INSTALL_OPENCLAW" -eq 0 ]; then
+    if prompt_yes_no "Set up OpenClaw CLI/plugin now?" "y"; then
+      INSTALL_OPENCLAW=1
+    fi
+  fi
+}
+
 while [ "$#" -gt 0 ]; do
   case "$1" in
+    -y|--yes)
+      ASSUME_YES=1
+      ;;
+    --no-system-deps)
+      INSTALL_SYSTEM_DEPS=0
+      ;;
     --force-agfs)
       FORCE_AGFS=1
       ;;
@@ -49,6 +408,9 @@ while [ "$#" -gt 0 ]; do
       ;;
     --install-openclaw-plugin)
       INSTALL_OPENCLAW=1
+      ;;
+    --install-claude-cli)
+      INSTALL_CLAUDE=1
       ;;
     -h|--help)
       usage
@@ -63,10 +425,17 @@ done
 
 cd "$ROOT_DIR"
 log "repository: $ROOT_DIR"
+ensure_system_deps
 
 if [ "$SKIP_PYTHON" -eq 0 ]; then
-  command -v "$PYTHON_BIN" >/dev/null 2>&1 || die "missing Python: $PYTHON_BIN"
-  if [ ! -d "$VENV_DIR" ]; then
+  have "$PYTHON_BIN" || die "missing Python: $PYTHON_BIN"
+  if [ -d "$VENV_DIR" ] && [ ! -x "$VENV_DIR/bin/python" ]; then
+    log "removing incomplete Python virtual environment at .venv"
+    rm -rf "$VENV_DIR"
+  fi
+  if [ ! -x "$VENV_DIR/bin/python" ]; then
+    prompt_yes_no "Create a Python virtual environment and install requirements.txt now?" "y" || \
+      die "Python environment is required; rerun with --skip-python only if you manage dependencies yourself"
     log "creating Python virtual environment at .venv"
     "$PYTHON_BIN" -m venv "$VENV_DIR"
   else
@@ -81,17 +450,18 @@ else
 fi
 
 if [ ! -f "$ROOT_DIR/env.sh" ]; then
-  log "creating env.sh from env.sh.example"
-  cp "$ROOT_DIR/env.sh.example" "$ROOT_DIR/env.sh"
+  log "creating env.sh"
+  create_env_file
 else
   log "env.sh already exists"
 fi
+load_local_env
 
 AGFS_BIN="$ROOT_DIR/agfs/build/agfs-server"
 if [ "$SKIP_AGFS" -eq 0 ]; then
   if [ "$FORCE_AGFS" -eq 1 ] || [ ! -x "$AGFS_BIN" ]; then
-    command -v make >/dev/null 2>&1 || die "missing make; install make or rerun with --skip-agfs"
-    command -v go >/dev/null 2>&1 || die "missing Go; install Go 1.21+ or rerun with --skip-agfs"
+    have make || die "missing make; install make or rerun with --skip-agfs"
+    ensure_go_version
     log "building bundled AGFS server"
     make -C "$ROOT_DIR/agfs" build
   else
@@ -101,12 +471,24 @@ else
   log "skipping AGFS build"
 fi
 
+select_integrations
+
+if [ "$INSTALL_CLAUDE" -eq 1 ]; then
+  ensure_claude_cli
+  log "Claude helper ready: $ROOT_DIR/claude-plugin/bin/rtc-claude"
+fi
+
 if [ "$INSTALL_OPENCLAW" -eq 1 ]; then
-  command -v openclaw >/dev/null 2>&1 || die "missing openclaw CLI"
+  ensure_openclaw_cli
+  have openclaw || die "missing openclaw CLI"
+  ensure_openclaw_model_auth
+  prepare_openclaw_plugin_dir
   log "installing linked OpenClaw plugin"
-  openclaw plugins install --link "$ROOT_DIR/openclaw-plugin" --dangerously-force-unsafe-install
+  openclaw plugins uninstall retrieval-token-cutter --force >/dev/null 2>&1 || true
+  openclaw plugins install --link "$PLUGIN_DIR" --dangerously-force-unsafe-install
   openclaw plugins enable retrieval-token-cutter
-  openclaw gateway restart
+  verify_openclaw_runtime
+  warn_openclaw_auth
 fi
 
 cat <<EOF
@@ -114,10 +496,13 @@ cat <<EOF
 Bootstrap complete.
 
 Next:
-  1. Edit env.sh and set RTC_EMBEDDING_API_KEY.
-  2. Start Claude from a target project:
+  1. Edit env.sh and fill the variables at the top.
+  2. Load them into this shell:
+     source "$ROOT_DIR/env.sh"
+  3. If you set up Claude, start Claude from a target project:
      $ROOT_DIR/claude-plugin/bin/rtc-claude
-  3. Or install OpenClaw once:
-     ./bootstrap.sh --install-openclaw-plugin
+  4. If you set up OpenClaw, start OpenClaw from a target project:
+     cd /path/to/project
+     openclaw chat
 
 EOF

@@ -56,7 +56,7 @@ claude --print "hello"
 从模板创建本地 `env.sh`，然后编辑里面的本地配置，不要提交真实密钥：
 
 ```bash
-cp env.sh.example env.sh
+./bootstrap.sh --skip-python --skip-agfs
 $EDITOR env.sh
 ```
 

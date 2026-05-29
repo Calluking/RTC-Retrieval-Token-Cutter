@@ -34,6 +34,15 @@ that file automatically through `setup_env.sh` when it loads.
 `./bootstrap.sh` creates `.venv`, installs `requirements.txt`, creates `env.sh`
 if needed, and builds the bundled AGFS server at `agfs/build/agfs-server`.
 
+OpenClaw also needs agent model credentials. For a DeepSeek setup, put these in
+your shell or `env.sh` before running `./bootstrap.sh --install-openclaw-plugin`:
+
+```bash
+export OPENAI_API_KEY="<your-deepseek-key>"
+export OPENAI_BASE_URL="https://api.deepseek.com"
+export OPENCLAW_MODEL="deepseek/deepseek-v4-flash"
+```
+
 You may also keep secret embedding settings in your shell environment, for
 example in `~/.bashrc`:
 
@@ -46,20 +55,20 @@ export RTC_EMBEDDING_MODEL="text-embedding-3-small"
 Then install the plugin as a linked local plugin:
 
 ```bash
-openclaw plugins install --link ./openclaw-plugin --dangerously-force-unsafe-install
-openclaw plugins enable retrieval-token-cutter
-openclaw gateway restart
+./bootstrap.sh --install-openclaw-plugin
 ```
 
-As a shortcut, `./bootstrap.sh --install-openclaw-plugin` runs those OpenClaw
-plugin install commands after preparing the repository.
+The bootstrap command installs/checks local prerequisites, links the plugin,
+verifies the runtime tools, creates an OpenClaw auth profile when
+`OPENCLAW_MODEL` plus `OPENCLAW_API_KEY` or `OPENAI_API_KEY` are present, and
+prints `openclaw configure` if model credentials are still missing.
 
 If this plugin was already installed from another checkout, uninstall the old
 registration first and relink the current clone:
 
 ```bash
 openclaw plugins uninstall retrieval-token-cutter --force
-openclaw plugins install --link ./openclaw-plugin --dangerously-force-unsafe-install
+./bootstrap.sh --install-openclaw-plugin
 ```
 
 OpenClaw asks for the explicit unsafe-install flag because this plugin starts
@@ -156,12 +165,13 @@ For RTC work, start it from the target project:
 
 ```bash
 cd /path/to/project
-openclaw chat --local
+openclaw chat
 ```
 
 No `source setup_env.sh`, `RTC_WORKSPACE_ROOT`, `RTC_DIR`, or
-`RTC_RUNTIME_DIR` is needed for normal interactive use. The plugin uses the
-directory where `openclaw chat --local` starts as the workspace.
+`RTC_RUNTIME_DIR` is needed for normal interactive use. The plugin loads this
+repository's `env.sh`, starts local RTC/AGFS, and uses OpenClaw's active
+workspace.
 
 Then ask normally:
 

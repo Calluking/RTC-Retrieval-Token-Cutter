@@ -32,10 +32,10 @@ With `uv`, use the extras that match the runner bootstrap:
 uv sync --extra mcp --extra swe
 ```
 
-Create `env.sh` from the repository template, then edit it with local values:
+Create local `env.sh` with bootstrap, then edit it with local values:
 
 ```bash
-cp env.sh.example env.sh
+./bootstrap.sh --skip-python --skip-agfs
 $EDITOR env.sh
 ```
 

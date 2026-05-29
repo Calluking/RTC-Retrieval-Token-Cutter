@@ -27,10 +27,10 @@ pip install -r requirements.txt
 uv sync --extra mcp --extra swe
 ```
 
-从模板创建本地 `env.sh`，然后编辑里面的本地配置：
+用 bootstrap 创建本地 `env.sh`，然后编辑里面的本地配置：
 
 ```bash
-cp env.sh.example env.sh
+./bootstrap.sh --skip-python --skip-agfs
 $EDITOR env.sh
 ```
 
