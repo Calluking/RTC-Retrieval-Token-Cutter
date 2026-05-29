@@ -5,13 +5,13 @@
 # Retrieval Token Cutter
 
 <p align="center">
-  <a href="LICENSE"><img alt="许可证：MulanPSL-2.0" src="https://img.shields.io/badge/License-MulanPSL--2.0-2ea44f?style=for-the-badge"></a>
-  <a href="pyproject.toml"><img alt="Python 3.11+" src="https://img.shields.io/badge/Python-3.11%2B-3776ab?style=for-the-badge&logo=python&logoColor=white"></a>
-  <a href="pyproject.toml"><img alt="版本 0.1.0" src="https://img.shields.io/badge/Version-0.1.0-0f766e?style=for-the-badge"></a>
-  <a href="claude-plugin/"><img alt="Claude Code 插件" src="https://img.shields.io/badge/Claude%20Code-plugin-6b46c1?style=for-the-badge"></a>
-  <a href="openclaw-plugin/"><img alt="OpenClaw 插件" src="https://img.shields.io/badge/OpenClaw-plugin-2563eb?style=for-the-badge"></a>
-  <a href="filter/"><img alt="RTC 过滤已启用" src="https://img.shields.io/badge/RTC%20Filter-read%20%2B%20bash-f59e0b?style=for-the-badge"></a>
-  <a href="agfs/"><img alt="AGFS 本地记忆" src="https://img.shields.io/badge/AGFS-local%20memory-14b8a6?style=for-the-badge"></a>
+  <a href="LICENSE"><img alt="许可证" src="https://img.shields.io/badge/license-MulanPSL--2.0-blue.svg"></a>
+  <a href="pyproject.toml"><img alt="Python" src="https://img.shields.io/badge/python-3.11%2B-blue.svg"></a>
+  <a href="pyproject.toml"><img alt="版本" src="https://img.shields.io/badge/version-0.1.0-blue.svg"></a>
+  <a href="claude-plugin/"><img alt="Claude Code" src="https://img.shields.io/badge/Claude%20Code-plugin-purple.svg"></a>
+  <a href="openclaw-plugin/"><img alt="OpenClaw" src="https://img.shields.io/badge/OpenClaw-plugin-blue.svg"></a>
+  <a href="filter/"><img alt="RTC 过滤" src="https://img.shields.io/badge/filter-read%20%2B%20bash-orange.svg"></a>
+  <a href="agfs/"><img alt="AGFS" src="https://img.shields.io/badge/AGFS-local%20memory-teal.svg"></a>
 </p>
 
 让 Claude Code 或 OpenClaw 通过 Retrieval Token Cutter 语义代码搜索、长输出过滤和精确替换编辑来理解并修改本地代码库。
