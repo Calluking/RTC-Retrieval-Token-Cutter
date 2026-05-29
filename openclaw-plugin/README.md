@@ -25,21 +25,14 @@ From a fresh clone, prepare the repository once:
 
 ```bash
 cd /path/to/retrieval-token-cutter
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-cp env.sh.example env.sh
+./bootstrap.sh
 $EDITOR env.sh
 ```
 
 Set at least `RTC_EMBEDDING_API_KEY` in `env.sh`. The OpenClaw plugin imports
 that file automatically through `setup_env.sh` when it loads.
-
-If `agfs-server` is not on `PATH`, build the bundled server once:
-
-```bash
-(cd agfs && make build)
-```
+`./bootstrap.sh` creates `.venv`, installs `requirements.txt`, creates `env.sh`
+if needed, and builds the bundled AGFS server at `agfs/build/agfs-server`.
 
 You may also keep secret embedding settings in your shell environment, for
 example in `~/.bashrc`:
@@ -57,6 +50,9 @@ openclaw plugins install --link ./openclaw-plugin --dangerously-force-unsafe-ins
 openclaw plugins enable retrieval-token-cutter
 openclaw gateway restart
 ```
+
+As a shortcut, `./bootstrap.sh --install-openclaw-plugin` runs those OpenClaw
+plugin install commands after preparing the repository.
 
 If this plugin was already installed from another checkout, uninstall the old
 registration first and relink the current clone:

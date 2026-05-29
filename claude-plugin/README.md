@@ -22,15 +22,11 @@ Claude loads this plugin with `--plugin-dir`. The plugin starts the bundled MCP 
 
 ## Configure
 
-From a fresh clone, install the repository Python dependencies and create the
-ignored local environment file:
+From a fresh clone, prepare the repository once:
 
 ```bash
 cd /path/to/retrieval-token-cutter
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-cp env.sh.example env.sh
+./bootstrap.sh
 $EDITOR env.sh
 ```
 
@@ -38,12 +34,8 @@ At minimum, set `RTC_EMBEDDING_API_KEY` for real code search. If you do not use
 the repository `.venv`, set `PY_BIN` to a Python that can import `flask`,
 `mcp`, `openai`, and `pyagfs`. The MCP launcher also checks common local Conda
 paths such as `~/miniconda3/bin/python`.
-
-If `agfs-server` is not on `PATH`, build the bundled AGFS server once:
-
-```bash
-(cd agfs && make build)
-```
+`./bootstrap.sh` creates `.venv`, installs `requirements.txt`, creates `env.sh`
+if needed, and builds the bundled AGFS server at `agfs/build/agfs-server`.
 
 The plugin wrapper [setup_env.sh](setup_env.sh) simply sources
 [../setup_env.sh](../setup_env.sh), which in turn sources the ignored `env.sh`.

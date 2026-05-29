@@ -22,14 +22,11 @@ Claude 通过 `--plugin-dir` 加载这个插件。插件会启动内置 MCP serv
 
 ## 配置
 
-在全新 clone 中，先安装仓库 Python 依赖，并创建被 git 忽略的本地环境文件：
+在全新 clone 中，先准备一次仓库环境：
 
 ```bash
 cd /path/to/retrieval-token-cutter
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-cp env.sh.example env.sh
+./bootstrap.sh
 $EDITOR env.sh
 ```
 
@@ -37,12 +34,8 @@ $EDITOR env.sh
 `.venv`，请把 `PY_BIN` 指向能 import `flask`、`mcp`、`openai` 和
 `pyagfs` 的 Python。MCP 启动器也会检查常见本地 Conda 路径，例如
 `~/miniconda3/bin/python`。
-
-如果 `agfs-server` 不在 `PATH` 中，先构建一次仓库内置 AGFS server：
-
-```bash
-(cd agfs && make build)
-```
+`./bootstrap.sh` 会创建 `.venv`、安装 `requirements.txt`、在需要时创建
+`env.sh`，并把内置 AGFS server 构建到 `agfs/build/agfs-server`。
 
 插件目录里的 [setup_env.sh](setup_env.sh) 只是转发到
 [../setup_env.sh](../setup_env.sh)，后者会 source 被 git 忽略的 `env.sh`。

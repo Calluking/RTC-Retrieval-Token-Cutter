@@ -21,21 +21,14 @@ OpenClaw 加载插件时，插件可以自动启动本地 RTC 和 AGFS 服务；
 
 ```bash
 cd /path/to/retrieval-token-cutter
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-cp env.sh.example env.sh
+./bootstrap.sh
 $EDITOR env.sh
 ```
 
 `env.sh` 里至少要填写 `RTC_EMBEDDING_API_KEY`。OpenClaw 插件加载时会通过
 `setup_env.sh` 自动导入这个文件。
-
-如果 `agfs-server` 不在 `PATH` 中，先构建一次仓库内置版本：
-
-```bash
-(cd agfs && make build)
-```
+`./bootstrap.sh` 会创建 `.venv`、安装 `requirements.txt`、在需要时创建
+`env.sh`，并把内置 AGFS server 构建到 `agfs/build/agfs-server`。
 
 你也可以把 embedding 密钥放在本机 shell 环境里，例如 `~/.bashrc`：
 
@@ -52,6 +45,9 @@ openclaw plugins install --link ./openclaw-plugin --dangerously-force-unsafe-ins
 openclaw plugins enable retrieval-token-cutter
 openclaw gateway restart
 ```
+
+也可以直接运行 `./bootstrap.sh --install-openclaw-plugin`，它会在准备仓库后
+执行这些 OpenClaw 插件安装命令。
 
 如果这个插件之前已经从另一个 checkout 安装过，先卸载旧注册项，再重新链接
 当前 clone：

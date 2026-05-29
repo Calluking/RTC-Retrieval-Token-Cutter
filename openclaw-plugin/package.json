@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "type": "module",
   "description": "OpenClaw plugin for Retrieval Token Cutter code search and edits.",
-  "license": "MIT",
+  "license": "MulanPSL-2.0",
   "main": "src/index.ts",
   "files": [
     "openclaw.plugin.json",
@@ -14,7 +14,8 @@
     "src"
   ],
   "scripts": {
-    "plugin:validate": "openclaw plugins validate --entry ./src/index.ts"
+    "plugin:validate": "node --check src/index.ts && node --check src/config.ts && node --check src/filter.ts && node --check src/http.ts && node --check src/paths.ts && node --check src/policy.ts && node --check src/rtc-service.ts && node --check src/tools.ts",
+    "plugin:inspect": "openclaw plugins inspect retrieval-token-cutter --runtime --json"
   },
   "peerDependencies": {
     "openclaw": ">=2026.5.17"
