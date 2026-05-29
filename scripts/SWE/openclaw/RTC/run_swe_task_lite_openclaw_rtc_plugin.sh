@@ -294,9 +294,34 @@ if ! [[ "$RUN_IDX" =~ ^[0-9]+$ ]]; then
   echo "RUN_IDX must be a non-negative integer, got: $RUN_IDX" >&2
   exit 1
 fi
+find_free_port_pair() {
+  "$PY_BIN" - "$RTC_BASE_PORT" "$AGFS_BASE_PORT" "$RUN_IDX" <<'PY'
+import socket
+import sys
+
+rtc_base, agfs_base, run_idx = map(int, sys.argv[1:4])
+
+def available(port):
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        try:
+            sock.bind(("127.0.0.1", port))
+        except OSError:
+            return False
+        return True
+
+for offset in range(200):
+    rtc = rtc_base + run_idx + offset
+    agfs = agfs_base + run_idx + offset
+    if rtc != agfs and available(rtc) and available(agfs):
+        print(rtc, agfs)
+        raise SystemExit(0)
+raise SystemExit("No free RTC/AGFS port pair found")
+PY
+}
 if [ "${SWE_PLUGIN_ISOLATE_PORTS:-1}" = "1" ]; then
-  export RTC_HTTP_PORT="$((RTC_BASE_PORT + RUN_IDX))"
-  export AGFS_HTTP_PORT="$((AGFS_BASE_PORT + RUN_IDX))"
+  read -r RTC_HTTP_PORT AGFS_HTTP_PORT < <(find_free_port_pair)
+  export RTC_HTTP_PORT AGFS_HTTP_PORT
   export RTC_URL="http://127.0.0.1:${RTC_HTTP_PORT}"
   export AGFS_BASE_URL="http://127.0.0.1:${AGFS_HTTP_PORT}"
 else

@@ -414,6 +414,21 @@ def command_start(args: argparse.Namespace) -> int:
         )
     rtc_pid_file.write_text(str(server_proc.pid), encoding="utf-8")
 
+    time.sleep(0.5)
+    failed = []
+    if agfs_proc.poll() is not None:
+        failed.append(f"AGFS exited with code {agfs_proc.returncode}; see {logs / 'agfs-server.log'}")
+    if server_proc.poll() is not None:
+        failed.append(
+            f"Retrieval Token Cutter exited with code {server_proc.returncode}; "
+            f"see {logs / 'retrieval-token-cutter-server.log'}"
+        )
+    if failed:
+        print("Failed to start local Retrieval Token Cutter services:", file=sys.stderr)
+        for item in failed:
+            print(f"- {item}", file=sys.stderr)
+        return 1
+
     for _ in range(max(1, int(args.wait))):
         try:
             get_json("/api/v1/health", timeout=2)
