@@ -22,11 +22,11 @@ OpenClaw 加载插件时，插件可以自动启动本地 RTC 和 AGFS 服务；
 ```bash
 cd /path/to/retrieval-token-cutter
 ./bootstrap.sh
-export RTC_EMBEDDING_API_KEY="<your-key>"
+$EDITOR setup_env.sh
 source setup_env.sh
 ```
 
-至少在 shell 或 shell profile 中设置 `RTC_EMBEDDING_API_KEY`。OpenClaw
+至少在 `setup_env.sh` 顶部的用户可编辑区设置 `RTC_EMBEDDING_API_KEY`，或把它放在 shell profile 中。OpenClaw
 插件加载时会通过 `setup_env.sh` 导入 shell profile 设置并应用仓库默认值。
 `./bootstrap.sh` 会创建 `.venv`、安装 `requirements.txt`，并把内置 AGFS
 server 构建到 `agfs/build/agfs-server`。
@@ -130,33 +130,30 @@ export RTC_INJECT_FILTERING_PROMPT=1
 
 ## 启动 OpenClaw
 
-OpenClaw 官方的 local embedded TUI 命令是：
+最小 OpenClaw 流程：
 
 ```bash
-openclaw chat
-```
-
-它等价于：
-
-```bash
-openclaw tui --local
-```
-
-使用 RTC 时，在目标项目目录启动即可：
-
-```bash
+cd /path/to/retrieval-token-cutter
+./bootstrap.sh --install-openclaw-plugin
+$EDITOR setup_env.sh
+source setup_env.sh
 cd /path/to/project
 openclaw chat --local
 ```
 
-正常交互使用不需要 `source setup_env.sh`，也不需要设置 `RTC_WORKSPACE_ROOT`、
-`RTC_DIR` 或 `RTC_RUNTIME_DIR`。插件会把 `openclaw chat --local` 的启动目录作为
-workspace。
+只有在 `cd` 到希望 agent 修改的项目目录后，再运行 `openclaw chat --local`。
+正常交互使用不需要设置 `RTC_WORKSPACE_ROOT`、`RTC_DIR` 或
+`RTC_RUNTIME_DIR`。
 
-然后正常提问：
+RTC 会把你启动 `openclaw chat --local` 时所在的目录作为代码搜索/编辑
+workspace。OpenClaw 原生 shell 运行 `pwd` 时，仍可能显示内部 workspace，例如
+`/root/.openclaw/workspace`。如果 shell 命令必须在项目目录运行，请在 prompt
+里明确写出目标项目路径。
+
+然后带上明确目标路径提问：
 
 ```text
-Fix the bug in the add function.
+The target project is /path/to/project. Run cd /path/to/project && ./scripts/run_smoke.sh, identify the failing implementation, fix only that bug, and rerun the command until it passes.
 ```
 
 TUI 可能会折叠工具调用卡片。终端里没有直接看到 `rtc_search_code`，不代表工具没有被调用。

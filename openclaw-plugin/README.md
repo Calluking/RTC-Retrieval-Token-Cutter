@@ -26,13 +26,14 @@ From a fresh clone, prepare the repository once:
 ```bash
 cd /path/to/retrieval-token-cutter
 ./bootstrap.sh
-export RTC_EMBEDDING_API_KEY="<your-key>"
+$EDITOR setup_env.sh
 source setup_env.sh
 ```
 
-Set at least `RTC_EMBEDDING_API_KEY` in your shell or shell profile. The
-OpenClaw plugin loads `setup_env.sh`, which imports shell profile settings and
-applies repo defaults. `./bootstrap.sh` creates `.venv`, installs
+Set at least `RTC_EMBEDDING_API_KEY` in the user-editable block at the top of
+`setup_env.sh`, or keep it in your shell profile. The OpenClaw plugin loads
+`setup_env.sh`, which imports shell profile settings and applies repo defaults.
+`./bootstrap.sh` creates `.venv`, installs
 `requirements.txt`, and builds the bundled AGFS server at
 `agfs/build/agfs-server`.
 
@@ -151,34 +152,31 @@ available.
 
 ## Start OpenClaw
 
-OpenClaw's official local embedded TUI command is:
+Minimal OpenClaw flow:
 
 ```bash
-openclaw chat
-```
-
-It is equivalent to:
-
-```bash
-openclaw tui --local
-```
-
-For RTC work, start it from the target project:
-
-```bash
+cd /path/to/retrieval-token-cutter
+./bootstrap.sh --install-openclaw-plugin
+$EDITOR setup_env.sh
+source setup_env.sh
 cd /path/to/project
-openclaw chat
+openclaw chat --local
 ```
 
-No manual `source setup_env.sh`, `RTC_WORKSPACE_ROOT`, `RTC_DIR`, or
-`RTC_RUNTIME_DIR` is needed for normal interactive use. The plugin loads this
-repository's `setup_env.sh`, starts local RTC/AGFS, and uses OpenClaw's active
-workspace.
+Start `openclaw chat --local` only after you `cd` into the project you want the
+agent to work on. No manual `RTC_WORKSPACE_ROOT`, `RTC_DIR`, or
+`RTC_RUNTIME_DIR` is needed for normal interactive use.
 
-Then ask normally:
+RTC uses the directory where you launched `openclaw chat --local` as its code
+search/edit workspace. OpenClaw's native shell may still report its internal
+workspace, such as `/root/.openclaw/workspace`, when the agent runs `pwd`. If a
+shell command must run from the project directory, name the target path in your
+prompt.
+
+Then ask with an explicit target path:
 
 ```text
-Fix the bug in the add function.
+The target project is /path/to/project. Run cd /path/to/project && ./scripts/run_smoke.sh, identify the failing implementation, fix only that bug, and rerun the command until it passes.
 ```
 
 The TUI may keep tool cards collapsed. Absence of visible `rtc_search_code` text in the terminal does not mean search was skipped.

@@ -46,18 +46,19 @@ Retrieval Token Cutter 提供两个本地插件：
 ```bash
 cd /path/to/retrieval-token-cutter
 ./bootstrap.sh
-export RTC_EMBEDDING_API_KEY="<your-key>"
+$EDITOR setup_env.sh
 source setup_env.sh
 ```
 
-至少在 shell 或 shell profile 中设置：
+至少在 `setup_env.sh` 顶部的用户可编辑区设置：
 
 ```bash
 export RTC_EMBEDDING_API_KEY="<your-key>"
 ```
 
-`./bootstrap.sh` 会创建 `.venv`、安装 `requirements.txt`，并构建
-`agfs/build/agfs-server`。
+`./bootstrap.sh` 会创建 `.venv`、安装 `requirements.txt` 中的运行时依赖，
+并构建 `agfs/build/agfs-server`。完整 SWE-bench 验证是可选的；只有需要
+较重的 SWE-bench 依赖时再运行 `./bootstrap.sh --install-swe-deps`。
 
 ![全新 clone 快速开始](<docs/assets/readme/RTC/CN_Fresh Clone Start.png>)
 
@@ -67,6 +68,7 @@ export RTC_EMBEDDING_API_KEY="<your-key>"
 ./bootstrap.sh --help
 ./bootstrap.sh --force-agfs
 ./bootstrap.sh --install-openclaw-plugin
+./bootstrap.sh --install-swe-deps
 ```
 
 如果想手动执行同样的步骤：
@@ -99,33 +101,31 @@ claude --plugin-dir /path/to/retrieval-token-cutter/claude-plugin
 
 ## 启动 OpenClaw
 
-先安装一次本地链接插件：
+最小 OpenClaw 流程：
 
 ```bash
 cd /path/to/retrieval-token-cutter
 ./bootstrap.sh --install-openclaw-plugin
-```
-
-等价的手动命令：
-
-```bash
-openclaw plugins install --link ./openclaw-plugin --dangerously-force-unsafe-install
-openclaw plugins enable retrieval-token-cutter
-openclaw gateway restart
-```
-
-OpenClaw 要求 `--dangerously-force-unsafe-install`，因为这个插件会通过 Node child process API 自动启动本地 RTC/AGFS 进程。
-
-然后在你希望 OpenClaw 修改的项目目录中启动：
-
-```bash
+$EDITOR setup_env.sh
+source setup_env.sh
 cd /path/to/project
 openclaw chat --local
 ```
 
-正常交互使用时不需要手动 `source setup_env.sh`，也不需要设置 `RTC_DIR`、
-`RTC_RUNTIME_DIR` 或 `RTC_WORKSPACE_ROOT`。本地链接插件会自动发现当前仓库、
-加载 `setup_env.sh`、启动 RTC/AGFS，并把启动 OpenClaw 的目录作为 workspace。
+OpenClaw 要求 `--dangerously-force-unsafe-install`，因为这个插件会通过 Node child process API 自动启动本地 RTC/AGFS 进程。
+
+只有在 `cd` 到希望 agent 修改的项目目录后，再运行 `openclaw chat --local`。
+正常交互使用时不需要设置 `RTC_DIR`、`RTC_RUNTIME_DIR` 或
+`RTC_WORKSPACE_ROOT`。
+
+RTC 会把你启动 `openclaw chat --local` 时所在的目录作为代码搜索/编辑
+workspace。OpenClaw 原生 shell 运行 `pwd` 时，仍可能显示内部 workspace，例如
+`/root/.openclaw/workspace`。如果 shell 命令必须在项目目录运行，请在 prompt
+里明确写出目标项目路径：
+
+```text
+The target project is /path/to/project. Run cd /path/to/project && <command>.
+```
 
 ## 验证
 

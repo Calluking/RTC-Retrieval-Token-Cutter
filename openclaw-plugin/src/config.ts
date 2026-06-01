@@ -1,4 +1,5 @@
 import os from "node:os";
+import fs from "node:fs";
 import path from "node:path";
 
 export interface RtcPluginConfig {
@@ -66,6 +67,19 @@ function truthyEnv(name: string): boolean {
   return ["1", "true", "yes", "on"].includes(raw);
 }
 
+function launchCwd(): string | undefined {
+  if (truthyEnv("RTC_OPENCLAW_IGNORE_LAUNCH_CWD")) return undefined;
+  const raw = process.env.RTC_OPENCLAW_LAUNCH_CWD || process.env.PWD;
+  if (!raw) return undefined;
+  const candidate = resolvePathValue(raw);
+  try {
+    if (fs.statSync(candidate).isDirectory()) return candidate;
+  } catch {
+    // Ignore stale inherited PWD values and fall back to OpenClaw's cwd.
+  }
+  return undefined;
+}
+
 function asNumber(value: unknown, fallback: number, min: number, max: number): number {
   const parsed = typeof value === "number" ? value : Number(value);
   if (!Number.isFinite(parsed)) return fallback;
@@ -86,6 +100,7 @@ export function resolveWorkspaceRoot(config: RtcPluginConfig): string {
   const raw =
     (respectEnvPaths ? process.env.RTC_WORKSPACE_ROOT || process.env.OPENCLAW_WORKSPACE_ROOT : undefined) ||
     (respectConfig && truthyEnv("RTC_OPENCLAW_RESPECT_CONFIG_WORKSPACE") ? config.workspaceRoot : undefined) ||
+    launchCwd() ||
     process.cwd();
   return resolvePathValue(raw);
 }

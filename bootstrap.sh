@@ -10,6 +10,7 @@ SKIP_AGFS=0
 INSTALL_OPENCLAW=0
 INSTALL_CLAUDE=0
 INSTALL_SYSTEM_DEPS=1
+INSTALL_SWE_DEPS=0
 ASSUME_YES=0
 
 usage() {
@@ -26,6 +27,7 @@ Options:
   --skip-agfs               Do not build the bundled AGFS server.
   --install-openclaw-plugin Install and enable the linked OpenClaw plugin.
   --install-claude-cli      Install Claude Code CLI if missing.
+  --install-swe-deps        Install optional SWE-bench runner dependencies.
   -h, --help                Show this help.
 
 Put local API keys and overrides in your shell profile or export them before
@@ -364,6 +366,9 @@ while [ "$#" -gt 0 ]; do
     --install-claude-cli)
       INSTALL_CLAUDE=1
       ;;
+    --install-swe-deps)
+      INSTALL_SWE_DEPS=1
+      ;;
     -h|--help)
       usage
       exit 0
@@ -397,6 +402,10 @@ if [ "$SKIP_PYTHON" -eq 0 ]; then
   log "installing Python dependencies from requirements.txt"
   "$VENV_DIR/bin/python" -m pip install --upgrade pip
   "$VENV_DIR/bin/python" -m pip install -r "$ROOT_DIR/requirements.txt"
+  if [ "$INSTALL_SWE_DEPS" -eq 1 ]; then
+    log "installing optional SWE-bench dependencies from requirements-swe.txt"
+    "$VENV_DIR/bin/python" -m pip install -r "$ROOT_DIR/requirements-swe.txt"
+  fi
 else
   log "skipping Python dependency setup"
 fi
@@ -442,13 +451,18 @@ cat <<EOF
 Bootstrap complete.
 
 Next:
-  1. Export your API keys/model settings in this shell or your shell profile.
-  2. Load repo defaults into this shell:
+  1. Edit the user-editable settings at the top of:
+     $ROOT_DIR/setup_env.sh
+  2. Load those settings into this shell:
      source "$ROOT_DIR/setup_env.sh"
   3. If you set up Claude, start Claude from a target project:
+     cd /path/to/project
      $ROOT_DIR/claude-plugin/bin/rtc-claude
   4. If you set up OpenClaw, start OpenClaw from a target project:
      cd /path/to/project
-     openclaw chat
+     openclaw chat --local
+     Then name the target path in your prompt, because OpenClaw's native shell
+     may still start in ~/.openclaw/workspace:
+     The target project is /path/to/project. Run cd /path/to/project && <command>.
 
 EOF

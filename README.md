@@ -55,11 +55,11 @@ cd /path/to/retrieval-token-cutter
 OpenClaw and Claude Code are installed, then asks which integration to set up.
 It does not ask you to type API keys into the installer.
 
-Export your local API keys/model settings in your shell or shell profile, then
-load the shared environment loader:
+Edit the user-editable block at the top of `setup_env.sh` with your local API
+keys/model settings, then load it:
 
 ```bash
-export RTC_EMBEDDING_API_KEY="<your-key>"
+$EDITOR setup_env.sh
 source setup_env.sh
 ```
 
@@ -77,8 +77,10 @@ export OPENAI_BASE_URL="https://api.deepseek.com"
 export OPENCLAW_MODEL="deepseek/deepseek-v4-flash"
 ```
 
-`./bootstrap.sh` creates `.venv`, installs `requirements.txt`, and builds
-`agfs/build/agfs-server`.
+`./bootstrap.sh` creates `.venv`, installs the runtime dependencies in
+`requirements.txt`, and builds `agfs/build/agfs-server`. Full SWE-bench
+validation is optional; install that heavier stack only when needed with
+`./bootstrap.sh --install-swe-deps`.
 
 ![Fresh clone quickstart](<docs/assets/readme/RTC/EN_Fresh Clone Start.png>)
 
@@ -88,6 +90,7 @@ Useful variants:
 ./bootstrap.sh --help
 ./bootstrap.sh --force-agfs
 ./bootstrap.sh --install-openclaw-plugin
+./bootstrap.sh --install-swe-deps
 ```
 
 If you prefer manual setup:
@@ -122,12 +125,15 @@ Do not pass `--mcp-config`; the Claude plugin owns its `.mcp.json`.
 
 ## Start OpenClaw
 
-If you chose OpenClaw setup during bootstrap, start OpenClaw from the project
-you want to edit:
+Minimal OpenClaw flow:
 
 ```bash
+cd /path/to/retrieval-token-cutter
+./bootstrap.sh --install-openclaw-plugin
+$EDITOR setup_env.sh
+source setup_env.sh
 cd /path/to/project
-openclaw chat
+openclaw chat --local
 ```
 
 OpenClaw requires `--dangerously-force-unsafe-install` because this plugin
@@ -145,10 +151,19 @@ source setup_env.sh
 ./bootstrap.sh --install-openclaw-plugin
 ```
 
-No manual `source setup_env.sh`, `RTC_DIR`, `RTC_RUNTIME_DIR`, or
-`RTC_WORKSPACE_ROOT` is needed for normal interactive use. The linked plugin
-discovers this repo, loads `setup_env.sh`, starts RTC/AGFS, and uses
-OpenClaw's active workspace.
+Start `openclaw chat --local` only after you `cd` into the project you want the
+agent to work on. No manual `RTC_DIR`, `RTC_RUNTIME_DIR`, or
+`RTC_WORKSPACE_ROOT` is needed for normal interactive use.
+
+RTC uses the directory where you launched `openclaw chat --local` as its code
+search/edit workspace. OpenClaw's native shell may still report its internal
+workspace, such as `/root/.openclaw/workspace`, when the agent runs `pwd`. If a
+shell command must run from the project directory, name the target path in your
+prompt:
+
+```text
+The target project is /path/to/project. Run cd /path/to/project && <command>.
+```
 
 ## Verify
 
