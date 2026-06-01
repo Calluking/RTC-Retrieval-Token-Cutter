@@ -317,13 +317,7 @@ warn_openclaw_auth() {
   fi
 }
 
-select_integrations() {
-  if have openclaw; then
-    log "OpenClaw CLI found: $(command -v openclaw)"
-  else
-    log "OpenClaw CLI not found"
-  fi
-
+setup_claude_integration() {
   if have claude; then
     log "Claude Code CLI found: $(command -v claude)"
   else
@@ -336,10 +330,36 @@ select_integrations() {
     fi
   fi
 
+  if [ "$INSTALL_CLAUDE" -eq 1 ]; then
+    ensure_claude_cli
+    log "Claude helper ready: $ROOT_DIR/claude-plugin/bin/rtc-claude"
+  fi
+}
+
+setup_openclaw_integration() {
+  if have openclaw; then
+    log "OpenClaw CLI found: $(command -v openclaw)"
+  else
+    log "OpenClaw CLI not found"
+  fi
+
   if [ "$INSTALL_OPENCLAW" -eq 0 ]; then
     if prompt_yes_no "Set up OpenClaw CLI/plugin now?" "y"; then
       INSTALL_OPENCLAW=1
     fi
+  fi
+
+  if [ "$INSTALL_OPENCLAW" -eq 1 ]; then
+    ensure_openclaw_cli
+    have openclaw || die "missing openclaw CLI"
+    ensure_openclaw_model_auth
+    prepare_openclaw_plugin_dir
+    log "installing linked OpenClaw plugin"
+    openclaw plugins uninstall retrieval-token-cutter --force >/dev/null 2>&1 || true
+    openclaw plugins install --link "$PLUGIN_DIR" --dangerously-force-unsafe-install
+    openclaw plugins enable retrieval-token-cutter
+    verify_openclaw_runtime
+    warn_openclaw_auth
   fi
 }
 
@@ -426,25 +446,8 @@ else
   log "skipping AGFS build"
 fi
 
-select_integrations
-
-if [ "$INSTALL_CLAUDE" -eq 1 ]; then
-  ensure_claude_cli
-  log "Claude helper ready: $ROOT_DIR/claude-plugin/bin/rtc-claude"
-fi
-
-if [ "$INSTALL_OPENCLAW" -eq 1 ]; then
-  ensure_openclaw_cli
-  have openclaw || die "missing openclaw CLI"
-  ensure_openclaw_model_auth
-  prepare_openclaw_plugin_dir
-  log "installing linked OpenClaw plugin"
-  openclaw plugins uninstall retrieval-token-cutter --force >/dev/null 2>&1 || true
-  openclaw plugins install --link "$PLUGIN_DIR" --dangerously-force-unsafe-install
-  openclaw plugins enable retrieval-token-cutter
-  verify_openclaw_runtime
-  warn_openclaw_auth
-fi
+setup_claude_integration
+setup_openclaw_integration
 
 cat <<EOF
 
