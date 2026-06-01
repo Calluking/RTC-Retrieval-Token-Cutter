@@ -79,15 +79,6 @@ From the project you want Claude to edit:
 
 ```bash
 cd /path/to/project
-$RTC_DIR/claude-plugin/bin/rtc-claude
-```
-
-That helper loads `setup_env.sh` and runs Claude with this plugin directory. If
-your shell already exports the same RTC environment, the direct command is also
-fine:
-
-```bash
-cd /path/to/project
 claude --plugin-dir "$RTC_DIR/claude-plugin"
 ```
 
@@ -95,45 +86,11 @@ Do not pass `--mcp-config`; the Claude plugin owns its `.mcp.json`.
 
 ## Start OpenClaw
 
-Minimal OpenClaw flow:
+From the project you want OpenClaw to edit:
 
 ```bash
-git clone https://github.com/Calluking/RTC-Retrieval-Token-Cutter.git
-cd RTC-Retrieval-Token-Cutter
-./bootstrap.sh --install-openclaw-plugin
-$EDITOR setup_env.sh
-source setup_env.sh
 cd /path/to/project
 openclaw chat --local
-```
-
-OpenClaw requires `--dangerously-force-unsafe-install` because this plugin
-auto-starts local RTC/AGFS processes through Node's child process API.
-If `OPENCLAW_MODEL` and `OPENCLAW_API_KEY` or `OPENAI_API_KEY` are present,
-`bootstrap.sh` also creates the OpenClaw auth profile and selects that model.
-If credentials are still missing, it prints the one follow-up command:
-`openclaw configure`.
-
-To install or relink OpenClaw later:
-
-```bash
-cd RTC-Retrieval-Token-Cutter
-source setup_env.sh
-./bootstrap.sh --install-openclaw-plugin
-```
-
-Start `openclaw chat --local` only after you `cd` into the project you want the
-agent to work on. No manual `RTC_DIR`, `RTC_RUNTIME_DIR`, or
-`RTC_WORKSPACE_ROOT` is needed for normal interactive use.
-
-RTC uses the directory where you launched `openclaw chat --local` as its code
-search/edit workspace. OpenClaw's native shell may still report its internal
-workspace, such as `/root/.openclaw/workspace`, when the agent runs `pwd`. If a
-shell command must run from the project directory, name the target path in your
-prompt:
-
-```text
-The target project is /path/to/project. Run cd /path/to/project && <command>.
 ```
 
 ## Requirements

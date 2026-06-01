@@ -71,13 +71,6 @@ source setup_env.sh
 
 ```bash
 cd /path/to/project
-$RTC_DIR/claude-plugin/bin/rtc-claude
-```
-
-这个 helper 会加载 `setup_env.sh`，再带上插件目录启动 Claude。如果你的 shell 已经导出了同样的 RTC 环境变量，也可以直接运行：
-
-```bash
-cd /path/to/project
 claude --plugin-dir "$RTC_DIR/claude-plugin"
 ```
 
@@ -85,31 +78,11 @@ claude --plugin-dir "$RTC_DIR/claude-plugin"
 
 ## 启动 OpenClaw
 
-最小 OpenClaw 流程：
+在你希望 OpenClaw 修改的项目目录中运行：
 
 ```bash
-git clone https://github.com/Calluking/RTC-Retrieval-Token-Cutter.git
-cd RTC-Retrieval-Token-Cutter
-./bootstrap.sh --install-openclaw-plugin
-$EDITOR setup_env.sh
-source setup_env.sh
 cd /path/to/project
 openclaw chat --local
-```
-
-OpenClaw 要求 `--dangerously-force-unsafe-install`，因为这个插件会通过 Node child process API 自动启动本地 RTC/AGFS 进程。
-
-只有在 `cd` 到希望 agent 修改的项目目录后，再运行 `openclaw chat --local`。
-正常交互使用时不需要设置 `RTC_DIR`、`RTC_RUNTIME_DIR` 或
-`RTC_WORKSPACE_ROOT`。
-
-RTC 会把你启动 `openclaw chat --local` 时所在的目录作为代码搜索/编辑
-workspace。OpenClaw 原生 shell 运行 `pwd` 时，仍可能显示内部 workspace，例如
-`/root/.openclaw/workspace`。如果 shell 命令必须在项目目录运行，请在 prompt
-里明确写出目标项目路径：
-
-```text
-The target project is /path/to/project. Run cd /path/to/project && <command>.
 ```
 
 ## 环境要求
