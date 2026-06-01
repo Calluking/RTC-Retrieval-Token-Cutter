@@ -14,11 +14,6 @@ if [ -f "$HOME/.bashrc" ]; then
   source "$HOME/.bashrc" >/dev/null 2>&1 || true
 fi
 
-if [ -f "$RTC_SOURCE_TREE/env.sh" ]; then
-  # shellcheck disable=SC1091
-  source "$RTC_SOURCE_TREE/env.sh"
-fi
-
 rtc_python_has_runtime_deps() {
   [ -n "${1:-}" ] || return 1
   [ -x "$1" ] || return 1

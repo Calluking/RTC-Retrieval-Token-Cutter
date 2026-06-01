@@ -28,8 +28,8 @@ Options:
   --install-claude-cli      Install Claude Code CLI if missing.
   -h, --help                Show this help.
 
-The script creates env.sh if env.sh does not exist.
-After bootstrap finishes, edit env.sh, then run: source env.sh
+Put local API keys and overrides in your shell profile or export them before
+running the tools. Then load repo defaults with: source setup_env.sh
 EOF
 }
 
@@ -74,7 +74,10 @@ have() {
 
 run_apt() {
   if [ "$(id -u)" -eq 0 ]; then
-    DEBIAN_FRONTEND=noninteractive apt-get "$@"
+    # Rootless/user-namespace containers may not allow apt to drop privileges to
+    # the _apt user. Keeping the sandbox user as root lets fresh container
+    # bootstrap continue in those disposable environments.
+    DEBIAN_FRONTEND=noninteractive apt-get -o APT::Sandbox::User=root "$@"
   elif have sudo; then
     sudo DEBIAN_FRONTEND=noninteractive apt-get "$@"
   else
@@ -116,6 +119,7 @@ ensure_openclaw_cli() {
   have openclaw && return 0
 
   if [ -x "$HOME/.openclaw/bin/openclaw" ]; then
+    repair_openclaw_node_link
     export PATH="$HOME/.openclaw/bin:$PATH"
     if [ "$(id -u)" -eq 0 ] || [ -w /usr/local/bin ]; then
       ln -sf "$HOME/.openclaw/bin/openclaw" /usr/local/bin/openclaw
@@ -130,6 +134,7 @@ ensure_openclaw_cli() {
   have curl || die "missing curl; cannot install OpenClaw CLI"
   log "installing OpenClaw CLI"
   curl -fsSL https://openclaw.ai/install-cli.sh | bash
+  repair_openclaw_node_link
   export PATH="$HOME/.local/bin:$HOME/.openclaw/bin:$PATH"
   if [ -x "$HOME/.openclaw/bin/openclaw" ]; then
     if [ "$(id -u)" -eq 0 ] || [ -w /usr/local/bin ]; then
@@ -140,6 +145,23 @@ ensure_openclaw_cli() {
     fi
   fi
   have openclaw || die "OpenClaw installer finished, but openclaw is not on PATH; open a new shell or add the installer path to PATH"
+}
+
+repair_openclaw_node_link() {
+  local tools_dir="$HOME/.openclaw/tools"
+  local node_link="$tools_dir/node"
+  local node_dir
+
+  [ -d "$tools_dir" ] || return 0
+  if [ -x "$node_link/bin/node" ]; then
+    return 0
+  fi
+
+  node_dir="$(find "$tools_dir" -maxdepth 1 -type d -name 'node-v*' 2>/dev/null | sort -V | tail -1 || true)"
+  if [ -n "$node_dir" ] && [ -x "$node_dir/bin/node" ]; then
+    log "repairing OpenClaw Node symlink"
+    ln -sfn "$node_dir" "$node_link"
+  fi
 }
 
 node_major_version() {
@@ -209,7 +231,6 @@ prepare_openclaw_plugin_dir() {
   ln -sfn "$ROOT_DIR/server" "$cache_root/server"
   ln -sfn "$ROOT_DIR/agfs" "$cache_root/agfs"
   ln -sfn "$ROOT_DIR/.venv" "$cache_root/.venv"
-  ln -sfn "$ROOT_DIR/env.sh" "$cache_root/env.sh"
   ln -sfn "$ROOT_DIR/setup_env.sh" "$cache_root/setup_env.sh"
   if [ -d "$ROOT_DIR/code-version" ]; then
     ln -sfn "$ROOT_DIR/code-version" "$cache_root/code-version"
@@ -221,9 +242,6 @@ load_local_env() {
   if [ -f "$ROOT_DIR/setup_env.sh" ]; then
     # shellcheck disable=SC1091
     source "$ROOT_DIR/setup_env.sh" >/dev/null 2>&1
-  elif [ -f "$ROOT_DIR/env.sh" ]; then
-    # shellcheck disable=SC1091
-    source "$ROOT_DIR/env.sh" >/dev/null 2>&1
   fi
   set -e -u
   return 0
@@ -295,72 +313,6 @@ warn_openclaw_auth() {
   if printf '%s\n' "$status" | grep -Eiq 'missing|not configured|no configured|no model|No API key'; then
     log "OpenClaw model auth is not configured yet; run: openclaw configure"
   fi
-}
-
-create_env_file() {
-  cat > "$ROOT_DIR/env.sh" <<'EOF'
-#!/usr/bin/env bash
-# Local Retrieval Token Cutter Claude/OpenClaw configuration.
-# env.sh is ignored by git so real API keys and local paths stay local.
-
-# === Fill These In First ===
-# Required for RTC semantic code search. Paste your embedding API key here.
-export RTC_EMBEDDING_API_KEY=""
-
-# Required for RTC semantic code search. Set your embedding provider endpoint.
-export RTC_EMBEDDING_BASE_URL=""
-
-# Required for RTC semantic code search. Set your embedding model name.
-export RTC_EMBEDDING_MODEL=""
-
-# Required for OpenClaw model auth. Paste your chat/model API key here.
-export OPENAI_API_KEY=""
-
-# Required for OpenClaw model auth. Set your OpenAI-compatible chat endpoint.
-export OPENAI_BASE_URL="https://api.deepseek.com"
-
-# Required for OpenClaw model auth. Set the model id OpenClaw should use.
-export OPENCLAW_MODEL="deepseek/deepseek-v4-flash"
-
-# Python used by the plugin MCP server and local Retrieval Token Cutter backend.
-# Leave empty to let setup_env.sh auto-detect .venv/bin/python or python3.
-export PY_BIN="${PY_BIN:-}"
-
-# Embeddings. OpenAI-compatible endpoints are supported.
-export EMBEDDING_PROVIDER="${EMBEDDING_PROVIDER:-openai}"
-
-# Local service ports used by the plugin auto-start flow.
-export RTC_HTTP_PORT="${RTC_HTTP_PORT:-8090}"
-export AGFS_HTTP_PORT="${AGFS_HTTP_PORT:-1833}"
-export RTC_URL="${RTC_URL:-http://127.0.0.1:${RTC_HTTP_PORT}}"
-export AGFS_BASE_URL="${AGFS_BASE_URL:-http://127.0.0.1:${AGFS_HTTP_PORT}}"
-
-# Auto-start AGFS/Retrieval Token Cutter when Claude loads the plugin, and stop them on exit.
-export RTC_PLUGIN_AUTO_START="${RTC_PLUGIN_AUTO_START:-1}"
-export RTC_PLUGIN_AUTO_STOP="${RTC_PLUGIN_AUTO_STOP:-1}"
-
-# Filter toggle. Set to 0/false/no/off to run the pre-filter data flow.
-export RTC_FILTER_ENABLED="${RTC_FILTER_ENABLED:-1}"
-
-# Prompt toggle. Set to 1/true/yes/on to inject the filtering strategy section
-# into Claude's code-policy prompt. The plain RTC SWE runner defaults this off;
-# the RTC-FILTER SWE runner defaults it on.
-export RTC_INJECT_FILTERING_PROMPT="${RTC_INJECT_FILTERING_PROMPT:-0}"
-
-# Code-search defaults.
-export VECTOR_DB_TYPE="${VECTOR_DB_TYPE:-memory}"
-export RTC_CODE_TOGGLE="${RTC_CODE_TOGGLE:-true}"
-export RTC_CODE_SEARCH_CANDIDATE_MAX_FILES="${RTC_CODE_SEARCH_CANDIDATE_MAX_FILES:-80}"
-export RTC_CODE_SEARCH_EMBED_MAX_FILES="${RTC_CODE_SEARCH_EMBED_MAX_FILES:-80}"
-export RTC_CODE_SEARCH_MAX_SNIPPETS="${RTC_CODE_SEARCH_MAX_SNIPPETS:-500}"
-export RTC_CODE_FUSE_MODE="${RTC_CODE_FUSE_MODE:-weighted_rrf}"
-export RTC_CODE_FUSE_W_EMBED="${RTC_CODE_FUSE_W_EMBED:-0.33}"
-export RTC_CODE_FUSE_W_BM25="${RTC_CODE_FUSE_W_BM25:-0.17}"
-export RTC_CODE_FUSE_W_CTAGS="${RTC_CODE_FUSE_W_CTAGS:-0.17}"
-export RTC_CODE_FUSE_W_GRAPH="${RTC_CODE_FUSE_W_GRAPH:-0.33}"
-export RTC_BOOTSTRAP_MAX_FILES="${RTC_BOOTSTRAP_MAX_FILES:-40}"
-export RTC_BOOTSTRAP_FULL_INDEX_CAP_FILES="${RTC_BOOTSTRAP_FULL_INDEX_CAP_FILES:-40}"
-EOF
 }
 
 select_integrations() {
@@ -449,12 +401,6 @@ else
   log "skipping Python dependency setup"
 fi
 
-if [ ! -f "$ROOT_DIR/env.sh" ]; then
-  log "creating env.sh"
-  create_env_file
-else
-  log "env.sh already exists"
-fi
 load_local_env
 
 AGFS_BIN="$ROOT_DIR/agfs/build/agfs-server"
@@ -496,9 +442,9 @@ cat <<EOF
 Bootstrap complete.
 
 Next:
-  1. Edit env.sh and fill the variables at the top.
-  2. Load them into this shell:
-     source "$ROOT_DIR/env.sh"
+  1. Export your API keys/model settings in this shell or your shell profile.
+  2. Load repo defaults into this shell:
+     source "$ROOT_DIR/setup_env.sh"
   3. If you set up Claude, start Claude from a target project:
      $ROOT_DIR/claude-plugin/bin/rtc-claude
   4. If you set up OpenClaw, start OpenClaw from a target project:

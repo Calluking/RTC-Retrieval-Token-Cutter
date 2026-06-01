@@ -46,17 +46,18 @@ Retrieval Token Cutter 提供两个本地插件：
 ```bash
 cd /path/to/retrieval-token-cutter
 ./bootstrap.sh
-$EDITOR env.sh
+export RTC_EMBEDDING_API_KEY="<your-key>"
+source setup_env.sh
 ```
 
-至少在 `env.sh` 中设置：
+至少在 shell 或 shell profile 中设置：
 
 ```bash
 export RTC_EMBEDDING_API_KEY="<your-key>"
 ```
 
-`./bootstrap.sh` 会创建 `.venv`、安装 `requirements.txt`、在缺少时创建
-`env.sh`，并构建 `agfs/build/agfs-server`。
+`./bootstrap.sh` 会创建 `.venv`、安装 `requirements.txt`，并构建
+`agfs/build/agfs-server`。
 
 ![全新 clone 快速开始](<docs/assets/readme/RTC/CN_Fresh Clone Start.png>)
 
@@ -87,7 +88,7 @@ cd /path/to/project
 /path/to/retrieval-token-cutter/claude-plugin/bin/rtc-claude
 ```
 
-这个 helper 会加载 `env.sh`，再带上插件目录启动 Claude。如果你的 shell 已经导出了同样的 RTC 环境变量，也可以直接运行：
+这个 helper 会加载 `setup_env.sh`，再带上插件目录启动 Claude。如果你的 shell 已经导出了同样的 RTC 环境变量，也可以直接运行：
 
 ```bash
 cd /path/to/project
@@ -122,9 +123,9 @@ cd /path/to/project
 openclaw chat --local
 ```
 
-正常交互使用时不需要 `source setup_env.sh`，也不需要设置 `RTC_DIR`、
+正常交互使用时不需要手动 `source setup_env.sh`，也不需要设置 `RTC_DIR`、
 `RTC_RUNTIME_DIR` 或 `RTC_WORKSPACE_ROOT`。本地链接插件会自动发现当前仓库、
-加载 `env.sh`、启动 RTC/AGFS，并把启动 OpenClaw 的目录作为 workspace。
+加载 `setup_env.sh`、启动 RTC/AGFS，并把启动 OpenClaw 的目录作为 workspace。
 
 ## 验证
 
@@ -169,7 +170,7 @@ rg -n "Retrieval Token Cutter|FILTER IS TRIGGERED|rtc_search_code|rtc_edit_file"
 
 ## 配置
 
-本地配置放在被 git 忽略的 `env.sh` 中。不要提交真实 API key。
+本地配置来自 shell 环境或 shell profile；`setup_env.sh` 会导入这些设置并应用仓库默认值。不要提交真实 API key。
 
 常用配置：
 

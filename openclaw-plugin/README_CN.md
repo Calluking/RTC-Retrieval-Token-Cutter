@@ -22,13 +22,14 @@ OpenClaw 加载插件时，插件可以自动启动本地 RTC 和 AGFS 服务；
 ```bash
 cd /path/to/retrieval-token-cutter
 ./bootstrap.sh
-$EDITOR env.sh
+export RTC_EMBEDDING_API_KEY="<your-key>"
+source setup_env.sh
 ```
 
-`env.sh` 里至少要填写 `RTC_EMBEDDING_API_KEY`。OpenClaw 插件加载时会通过
-`setup_env.sh` 自动导入这个文件。
-`./bootstrap.sh` 会创建 `.venv`、安装 `requirements.txt`、在需要时创建
-`env.sh`，并把内置 AGFS server 构建到 `agfs/build/agfs-server`。
+至少在 shell 或 shell profile 中设置 `RTC_EMBEDDING_API_KEY`。OpenClaw
+插件加载时会通过 `setup_env.sh` 导入 shell profile 设置并应用仓库默认值。
+`./bootstrap.sh` 会创建 `.venv`、安装 `requirements.txt`，并把内置 AGFS
+server 构建到 `agfs/build/agfs-server`。
 
 你也可以把 embedding 密钥放在本机 shell 环境里，例如 `~/.bashrc`：
 

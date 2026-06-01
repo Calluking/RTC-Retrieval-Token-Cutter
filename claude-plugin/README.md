@@ -27,22 +27,23 @@ From a fresh clone, prepare the repository once:
 ```bash
 cd /path/to/retrieval-token-cutter
 ./bootstrap.sh
-$EDITOR env.sh
+export RTC_EMBEDDING_API_KEY="<your-key>"
+source setup_env.sh
 ```
 
-At minimum, set `RTC_EMBEDDING_API_KEY` for real code search. If you do not use
-the repository `.venv`, set `PY_BIN` to a Python that can import `flask`,
-`mcp`, `openai`, and `pyagfs`. The MCP launcher also checks common local Conda
-paths such as `~/miniconda3/bin/python`.
-`./bootstrap.sh` creates `.venv`, installs `requirements.txt`, creates `env.sh`
-if needed, and builds the bundled AGFS server at `agfs/build/agfs-server`.
+At minimum, set `RTC_EMBEDDING_API_KEY` in your shell or shell profile for real
+code search. If you do not use the repository `.venv`, set `PY_BIN` to a Python
+that can import `flask`, `mcp`, `openai`, and `pyagfs`. The MCP launcher also
+checks common local Conda paths such as `~/miniconda3/bin/python`.
+`./bootstrap.sh` creates `.venv`, installs `requirements.txt`, and builds the
+bundled AGFS server at `agfs/build/agfs-server`.
 
-The plugin wrapper [setup_env.sh](setup_env.sh) simply sources
-[../setup_env.sh](../setup_env.sh), which in turn sources the ignored `env.sh`.
+The repository loader [../setup_env.sh](../setup_env.sh) imports shell profile
+settings and applies repo defaults.
 
 ## Start Claude
 
-Recommended command when your values are in `env.sh`:
+Recommended command after exporting your RTC settings:
 
 ```bash
 cd /path/to/project

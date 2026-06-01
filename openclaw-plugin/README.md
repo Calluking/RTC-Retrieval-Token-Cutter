@@ -26,16 +26,18 @@ From a fresh clone, prepare the repository once:
 ```bash
 cd /path/to/retrieval-token-cutter
 ./bootstrap.sh
-$EDITOR env.sh
+export RTC_EMBEDDING_API_KEY="<your-key>"
+source setup_env.sh
 ```
 
-Set at least `RTC_EMBEDDING_API_KEY` in `env.sh`. The OpenClaw plugin imports
-that file automatically through `setup_env.sh` when it loads.
-`./bootstrap.sh` creates `.venv`, installs `requirements.txt`, creates `env.sh`
-if needed, and builds the bundled AGFS server at `agfs/build/agfs-server`.
+Set at least `RTC_EMBEDDING_API_KEY` in your shell or shell profile. The
+OpenClaw plugin loads `setup_env.sh`, which imports shell profile settings and
+applies repo defaults. `./bootstrap.sh` creates `.venv`, installs
+`requirements.txt`, and builds the bundled AGFS server at
+`agfs/build/agfs-server`.
 
-OpenClaw also needs agent model credentials. For a DeepSeek setup, put these in
-your shell or `env.sh` before running `./bootstrap.sh --install-openclaw-plugin`:
+OpenClaw also needs agent model credentials. For a DeepSeek setup, export these
+before running `./bootstrap.sh --install-openclaw-plugin`:
 
 ```bash
 export OPENAI_API_KEY="<your-deepseek-key>"
@@ -168,9 +170,9 @@ cd /path/to/project
 openclaw chat
 ```
 
-No `source setup_env.sh`, `RTC_WORKSPACE_ROOT`, `RTC_DIR`, or
+No manual `source setup_env.sh`, `RTC_WORKSPACE_ROOT`, `RTC_DIR`, or
 `RTC_RUNTIME_DIR` is needed for normal interactive use. The plugin loads this
-repository's `env.sh`, starts local RTC/AGFS, and uses OpenClaw's active
+repository's `setup_env.sh`, starts local RTC/AGFS, and uses OpenClaw's active
 workspace.
 
 Then ask normally:

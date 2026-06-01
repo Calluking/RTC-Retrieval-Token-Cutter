@@ -27,22 +27,23 @@ Claude 通过 `--plugin-dir` 加载这个插件。插件会启动内置 MCP serv
 ```bash
 cd /path/to/retrieval-token-cutter
 ./bootstrap.sh
-$EDITOR env.sh
+export RTC_EMBEDDING_API_KEY="<your-key>"
+source setup_env.sh
 ```
 
-实际做代码搜索时，至少要设置 `RTC_EMBEDDING_API_KEY`。如果不使用仓库里的
+实际做代码搜索时，至少要在 shell 或 shell profile 中设置
+`RTC_EMBEDDING_API_KEY`。如果不使用仓库里的
 `.venv`，请把 `PY_BIN` 指向能 import `flask`、`mcp`、`openai` 和
 `pyagfs` 的 Python。MCP 启动器也会检查常见本地 Conda 路径，例如
 `~/miniconda3/bin/python`。
-`./bootstrap.sh` 会创建 `.venv`、安装 `requirements.txt`、在需要时创建
-`env.sh`，并把内置 AGFS server 构建到 `agfs/build/agfs-server`。
+`./bootstrap.sh` 会创建 `.venv`、安装 `requirements.txt`，并把内置 AGFS
+server 构建到 `agfs/build/agfs-server`。
 
-插件目录里的 [setup_env.sh](setup_env.sh) 只是转发到
-[../setup_env.sh](../setup_env.sh)，后者会 source 被 git 忽略的 `env.sh`。
+仓库级 [../setup_env.sh](../setup_env.sh) 会导入 shell profile 设置并应用仓库默认值。
 
 ## 启动 Claude
 
-如果本地配置在 `env.sh` 中，推荐命令是：
+导出 RTC 设置后，推荐命令是：
 
 ```bash
 cd /path/to/project

@@ -53,14 +53,14 @@ cd /path/to/retrieval-token-cutter
 `bootstrap.sh` is interactive for setup steps: if Ubuntu packages or Python
 `.venv` are missing, it asks before installing anything. It also checks whether
 OpenClaw and Claude Code are installed, then asks which integration to set up.
-It creates `env.sh` if missing, but it does not ask you to type API
-keys into the installer.
+It does not ask you to type API keys into the installer.
 
-Edit `env.sh`, fill the variables at the top, then load them:
+Export your local API keys/model settings in your shell or shell profile, then
+load the shared environment loader:
 
 ```bash
-$EDITOR env.sh
-source env.sh
+export RTC_EMBEDDING_API_KEY="<your-key>"
+source setup_env.sh
 ```
 
 Set at least this value:
@@ -77,8 +77,8 @@ export OPENAI_BASE_URL="https://api.deepseek.com"
 export OPENCLAW_MODEL="deepseek/deepseek-v4-flash"
 ```
 
-`./bootstrap.sh` creates `.venv`, installs `requirements.txt`, creates `env.sh`
-if missing, and builds `agfs/build/agfs-server`.
+`./bootstrap.sh` creates `.venv`, installs `requirements.txt`, and builds
+`agfs/build/agfs-server`.
 
 ![Fresh clone quickstart](<docs/assets/readme/RTC/EN_Fresh Clone Start.png>)
 
@@ -109,8 +109,9 @@ cd /path/to/project
 /path/to/retrieval-token-cutter/claude-plugin/bin/rtc-claude
 ```
 
-That helper loads `env.sh` and runs Claude with this plugin directory. If your
-shell already exports the same RTC environment, the direct command is also fine:
+That helper loads `setup_env.sh` and runs Claude with this plugin directory. If
+your shell already exports the same RTC environment, the direct command is also
+fine:
 
 ```bash
 cd /path/to/project
@@ -140,13 +141,14 @@ To install or relink OpenClaw later:
 
 ```bash
 cd /path/to/retrieval-token-cutter
-source env.sh
+source setup_env.sh
 ./bootstrap.sh --install-openclaw-plugin
 ```
 
-No `source setup_env.sh`, `RTC_DIR`, `RTC_RUNTIME_DIR`, or `RTC_WORKSPACE_ROOT`
-is needed for normal interactive use. The linked plugin discovers this repo,
-loads `env.sh`, starts RTC/AGFS, and uses OpenClaw's active workspace.
+No manual `source setup_env.sh`, `RTC_DIR`, `RTC_RUNTIME_DIR`, or
+`RTC_WORKSPACE_ROOT` is needed for normal interactive use. The linked plugin
+discovers this repo, loads `setup_env.sh`, starts RTC/AGFS, and uses
+OpenClaw's active workspace.
 
 ## Verify
 
@@ -193,7 +195,8 @@ healthy code run should show MCP tool names containing `search_code` and
 
 ## Configuration
 
-Local settings live in ignored `env.sh`. Do not commit real API
+Local settings should come from your shell environment or shell profile, which
+`setup_env.sh` imports before applying repo defaults. Do not commit real API
 keys.
 
 Common settings:
