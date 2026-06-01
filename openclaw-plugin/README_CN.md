@@ -20,7 +20,8 @@ OpenClaw 加载插件时，插件可以自动启动本地 RTC 和 AGFS 服务；
 在全新 clone 中，先准备一次仓库环境：
 
 ```bash
-cd /path/to/retrieval-token-cutter
+git clone https://github.com/Calluking/RTC-Retrieval-Token-Cutter.git
+cd RTC-Retrieval-Token-Cutter
 ./bootstrap.sh
 $EDITOR setup_env.sh
 source setup_env.sh
@@ -133,7 +134,8 @@ export RTC_INJECT_FILTERING_PROMPT=1
 最小 OpenClaw 流程：
 
 ```bash
-cd /path/to/retrieval-token-cutter
+git clone https://github.com/Calluking/RTC-Retrieval-Token-Cutter.git
+cd RTC-Retrieval-Token-Cutter
 ./bootstrap.sh --install-openclaw-plugin
 $EDITOR setup_env.sh
 source setup_env.sh

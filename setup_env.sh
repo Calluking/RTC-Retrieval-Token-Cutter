@@ -33,6 +33,7 @@ export DEBIAN_FRONTEND="${DEBIAN_FRONTEND:-noninteractive}"
 export PATH="$HOME/.local/bin:$HOME/.openclaw/bin:$PATH"
 
 export RTC_SOURCE_TREE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+export RTC_DIR="$RTC_SOURCE_TREE"
 export RTC_CLAUDE_PLUGIN_DIR="$RTC_SOURCE_TREE/claude-plugin"
 
 rtc_python_has_runtime_deps() {

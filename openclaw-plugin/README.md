@@ -24,7 +24,8 @@ outputs include the original-output retrieval hint.
 From a fresh clone, prepare the repository once:
 
 ```bash
-cd /path/to/retrieval-token-cutter
+git clone https://github.com/Calluking/RTC-Retrieval-Token-Cutter.git
+cd RTC-Retrieval-Token-Cutter
 ./bootstrap.sh
 $EDITOR setup_env.sh
 source setup_env.sh
@@ -155,7 +156,8 @@ available.
 Minimal OpenClaw flow:
 
 ```bash
-cd /path/to/retrieval-token-cutter
+git clone https://github.com/Calluking/RTC-Retrieval-Token-Cutter.git
+cd RTC-Retrieval-Token-Cutter
 ./bootstrap.sh --install-openclaw-plugin
 $EDITOR setup_env.sh
 source setup_env.sh

@@ -25,7 +25,8 @@ Claude loads this plugin with `--plugin-dir`. The plugin starts the bundled MCP 
 From a fresh clone, prepare the repository once:
 
 ```bash
-cd /path/to/retrieval-token-cutter
+git clone https://github.com/Calluking/RTC-Retrieval-Token-Cutter.git
+cd RTC-Retrieval-Token-Cutter
 ./bootstrap.sh
 export RTC_EMBEDDING_API_KEY="<your-key>"
 source setup_env.sh
@@ -47,13 +48,13 @@ Recommended command after exporting your RTC settings:
 
 ```bash
 cd /path/to/project
-/path/to/retrieval-token-cutter/claude-plugin/bin/rtc-claude
+$RTC_DIR/claude-plugin/bin/rtc-claude
 ```
 
 That helper sources the repository environment and then runs:
 
 ```bash
-claude --plugin-dir /path/to/retrieval-token-cutter/claude-plugin
+claude --plugin-dir "$RTC_DIR/claude-plugin"
 ```
 
 If your shell already exports the same environment values, you can run Claude
@@ -61,7 +62,7 @@ directly from the project Claude should edit:
 
 ```bash
 cd /path/to/project
-claude --plugin-dir /path/to/retrieval-token-cutter/claude-plugin
+claude --plugin-dir "$RTC_DIR/claude-plugin"
 ```
 
 Do not pass `--mcp-config`; this plugin owns its `.mcp.json`.

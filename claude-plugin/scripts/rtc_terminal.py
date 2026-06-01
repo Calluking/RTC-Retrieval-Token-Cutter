@@ -294,8 +294,13 @@ def read_pid(path: Path) -> int | None:
 
 def find_agfs_bin(repo_root: Path) -> str:
     env_bin = os.environ.get("AGFS_BIN")
-    if env_bin and Path(env_bin).expanduser().is_file():
-        return str(Path(env_bin).expanduser().resolve())
+    if env_bin:
+        try:
+            candidate = Path(env_bin).expanduser()
+            if candidate.is_file() and os.access(candidate, os.X_OK):
+                return str(candidate.resolve())
+        except OSError:
+            pass
     local = repo_root / "agfs" / "build" / "agfs-server"
     if local.is_file() and os.access(local, os.X_OK):
         return str(local)

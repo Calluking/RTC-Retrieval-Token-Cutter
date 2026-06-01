@@ -285,8 +285,8 @@ MCP requirement: before editing source/code files, call this tool at least
 once with a focused query. Treat this as the preferred replacement for broad
 grep and exploratory Read. Use 1-2 focused symbol-level searches when possible.
 If snippets already identify the target file and line context, proceed directly
-to `mcp__plugin_retrieval-token-cutter_retrieval-token-cutter__edit_file` or the next concrete verification step instead
-of reading many unrelated files.
+to the Retrieval Token Cutter MCP tool named `edit_file` or the next concrete
+verification step instead of reading many unrelated files.
 """,
 )
 def search_code(
@@ -390,6 +390,9 @@ def get_original_tool_output(
         "memory_uri": memory_uri,
         "max_chars": max_chars,
     })
+    match = re.match(r"^ctx://([^/]+)/agents/([^/]+)/memories/tool_outputs/", memory_uri or "")
+    if match and match.group(1) == body.get("accountId"):
+        body["agentId"] = match.group(2)
     result = post_json("/api/v1/tool_output_original", body)
     if not result.get("ok"):
         return json.dumps(result, indent=2)
@@ -413,9 +416,9 @@ This is an MCP replacement for Claude's built-in Edit tool:
 - replaces `old_string` with `new_string`
 - can replace once or all matches
 
-Use this for source/code edits after locating the relevant file with
-`mcp__plugin_retrieval-token-cutter_retrieval-token-cutter__search_code`. Prefer it over Claude's built-in Edit tool for
-files found through Retrieval Token Cutter.
+Use this for source/code edits after locating the relevant file with the
+Retrieval Token Cutter MCP tool named `search_code`. Prefer it over Claude's
+built-in Edit tool for files found through Retrieval Token Cutter.
 """,
 )
 def edit_file(

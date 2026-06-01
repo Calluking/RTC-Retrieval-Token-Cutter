@@ -33,20 +33,13 @@ for you, then stop the services they started when the host exits.
 
 ![Runtime architecture](<docs/assets/readme/RTC/EN_Runtime Architecture.png>)
 
-## Requirements
-
-- Python 3.11+
-- Go 1.22+
-- Claude Code CLI, OpenClaw CLI, or both
-- An OpenAI-compatible embedding endpoint and API key
-- Conda, only if you use the SWE runner's default local validation environment
-
 ## Quickstart
 
 Prepare a fresh checkout once:
 
 ```bash
-cd /path/to/retrieval-token-cutter
+git clone https://github.com/Calluking/RTC-Retrieval-Token-Cutter.git
+cd RTC-Retrieval-Token-Cutter
 ./bootstrap.sh
 ```
 
@@ -55,26 +48,22 @@ cd /path/to/retrieval-token-cutter
 OpenClaw and Claude Code are installed, then asks which integration to set up.
 It does not ask you to type API keys into the installer.
 
-Edit the user-editable block at the top of `setup_env.sh` with your local API
-keys/model settings, then load it:
-
+Export your model and embedding settings:
+(Use deepseek and text-embedding-3-small as example)
 ```bash
-$EDITOR setup_env.sh
-source setup_env.sh
-```
-
-Set at least this value:
-
-```bash
-export RTC_EMBEDDING_API_KEY="<your-key>"
-```
-
-For OpenClaw, also set the agent model provider. For a DeepSeek setup:
-
-```bash
-export OPENAI_API_KEY="<your-deepseek-key>"
-export OPENAI_BASE_URL="https://api.deepseek.com"
+export DEEPSEEK_API_KEY="<your-deepseek-key>"
+export DEEPSEEK_BASE_URL="https://api.deepseek.com"
 export OPENCLAW_MODEL="deepseek/deepseek-v4-flash"
+export RTC_EMBEDDING_API_KEY="<your-embedding-key>"
+export RTC_EMBEDDING_BASE_URL="https://api.openai-proxy.org"
+export RTC_EMBEDDING_MODEL="text-embedding-3-small"
+export ANTHROPIC_MODEL="haiku"
+```
+
+Then load the settings:
+
+```bash
+source setup_env.sh
 ```
 
 `./bootstrap.sh` creates `.venv`, installs the runtime dependencies in
@@ -84,32 +73,13 @@ validation is optional; install that heavier stack only when needed with
 
 ![Fresh clone quickstart](<docs/assets/readme/RTC/EN_Fresh Clone Start.png>)
 
-Useful variants:
-
-```bash
-./bootstrap.sh --help
-./bootstrap.sh --force-agfs
-./bootstrap.sh --install-openclaw-plugin
-./bootstrap.sh --install-swe-deps
-```
-
-If you prefer manual setup:
-
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-./bootstrap.sh --skip-python --skip-agfs
-make -C agfs build
-```
-
 ## Start Claude
 
 From the project you want Claude to edit:
 
 ```bash
 cd /path/to/project
-/path/to/retrieval-token-cutter/claude-plugin/bin/rtc-claude
+$RTC_DIR/claude-plugin/bin/rtc-claude
 ```
 
 That helper loads `setup_env.sh` and runs Claude with this plugin directory. If
@@ -118,7 +88,7 @@ fine:
 
 ```bash
 cd /path/to/project
-claude --plugin-dir /path/to/retrieval-token-cutter/claude-plugin
+claude --plugin-dir "$RTC_DIR/claude-plugin"
 ```
 
 Do not pass `--mcp-config`; the Claude plugin owns its `.mcp.json`.
@@ -128,7 +98,8 @@ Do not pass `--mcp-config`; the Claude plugin owns its `.mcp.json`.
 Minimal OpenClaw flow:
 
 ```bash
-cd /path/to/retrieval-token-cutter
+git clone https://github.com/Calluking/RTC-Retrieval-Token-Cutter.git
+cd RTC-Retrieval-Token-Cutter
 ./bootstrap.sh --install-openclaw-plugin
 $EDITOR setup_env.sh
 source setup_env.sh
@@ -146,7 +117,7 @@ If credentials are still missing, it prints the one follow-up command:
 To install or relink OpenClaw later:
 
 ```bash
-cd /path/to/retrieval-token-cutter
+cd RTC-Retrieval-Token-Cutter
 source setup_env.sh
 ./bootstrap.sh --install-openclaw-plugin
 ```
@@ -164,6 +135,14 @@ prompt:
 ```text
 The target project is /path/to/project. Run cd /path/to/project && <command>.
 ```
+
+## Requirements
+
+- Python 3.11+
+- Go 1.22+
+- Claude Code CLI, OpenClaw CLI, or both
+- An OpenAI-compatible embedding endpoint and API key
+- Conda, only if you use the SWE runner's default local validation environment
 
 ## Verify
 

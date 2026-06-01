@@ -19,16 +19,16 @@ description: 高效使用 Retrieval Token Cutter MCP 代码搜索和编辑工具
 
 不要在此任务中使用 Claude 内置 `Edit` 工具。
 
-把 `mcp__plugin_retrieval-token-cutter_retrieval-token-cutter__edit_file` 视为编辑工具。
+把 Retrieval Token Cutter MCP 工具 `edit_file` 视为编辑工具。
 
 ## 编码任务协议
 
 任务步骤：
 
 1. 用聚焦的、符合项目习惯的测试或命令复现问题。
-2. 在大范围读取文件前，先使用 `mcp__plugin_retrieval-token-cutter_retrieval-token-cutter__search_code`。
+2. 在大范围读取文件前，先使用 Retrieval Token Cutter MCP 工具 `search_code`。
 3. 结合失败行为和语义搜索结果定位最匹配的实现位置。
-4. 使用 `mcp__plugin_retrieval-token-cutter_retrieval-token-cutter__edit_file` 修复问题，不使用 Claude 内置 `Edit`。
+4. 使用 Retrieval Token Cutter MCP 工具 `edit_file` 修复问题，不使用 Claude 内置 `Edit`。
 5. 重新运行验证，确保相关测试通过。
 
 最终回答必须包含：
@@ -42,7 +42,7 @@ description: 高效使用 Retrieval Token Cutter MCP 代码搜索和编辑工具
 - 将 Retrieval Token Cutter 的 `search_code` 作为大范围 `grep` 和探索性 `read` 的替代。
 - 减少额外搜索循环：优先使用 1-2 次高质量、聚焦到符号级别的 `search_code` 查询。
 - 如果返回 snippet 已包含目标文件和有用行上下文，直接行动：
-  - 立即用 `mcp__plugin_retrieval-token-cutter_retrieval-token-cutter__edit_file` 编辑；或
+  - 立即用 Retrieval Token Cutter MCP 工具 `edit_file` 编辑；或
   - 执行下一个具体动作（打补丁/测试），不要继续大范围读取。
 - 命中良好后避免读取大量无关文件，保持轮次和 token 低。
 - 只有在验证安全性或精确补丁依赖时，才额外读取文件。

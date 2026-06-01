@@ -25,7 +25,8 @@ Claude 通过 `--plugin-dir` 加载这个插件。插件会启动内置 MCP serv
 在全新 clone 中，先准备一次仓库环境：
 
 ```bash
-cd /path/to/retrieval-token-cutter
+git clone https://github.com/Calluking/RTC-Retrieval-Token-Cutter.git
+cd RTC-Retrieval-Token-Cutter
 ./bootstrap.sh
 export RTC_EMBEDDING_API_KEY="<your-key>"
 source setup_env.sh
@@ -47,20 +48,20 @@ server 构建到 `agfs/build/agfs-server`。
 
 ```bash
 cd /path/to/project
-/path/to/retrieval-token-cutter/claude-plugin/bin/rtc-claude
+$RTC_DIR/claude-plugin/bin/rtc-claude
 ```
 
 这个 helper 会先加载仓库环境，然后运行：
 
 ```bash
-claude --plugin-dir /path/to/retrieval-token-cutter/claude-plugin
+claude --plugin-dir "$RTC_DIR/claude-plugin"
 ```
 
 如果你的 shell 已经导出了同样的环境变量，也可以在 Claude 要修改的项目目录中直接运行：
 
 ```bash
 cd /path/to/project
-claude --plugin-dir /path/to/retrieval-token-cutter/claude-plugin
+claude --plugin-dir "$RTC_DIR/claude-plugin"
 ```
 
 不要传 `--mcp-config`，插件自带 `.mcp.json`。

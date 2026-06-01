@@ -2,12 +2,12 @@
 
 Use the normal SWE-bench issue-solving workflow, with this substitution:
 
-- For code discovery, use `mcp__plugin_retrieval-token-cutter_retrieval-token-cutter__search_code` instead of broad grep/find/read exploration.
+- For code discovery, use the Retrieval Token Cutter MCP tool named `search_code` instead of broad grep/find/read exploration.
 - Native `Read` on long logs/traces may be filtered through RTC before content is returned. The backend stores L0 as filtered content, L1 as properties, and L2 as the original output.
 - Before editing any source/code file, call `search_code` at least once with a focused query.
 - Treat paths returned by `search_code` as workspace-relative paths; do not prepend the project root.
 - If `search_code` returns the relevant file and enough surrounding code to make the patch, do not perform additional broad file exploration.
-- For source edits, use `mcp__plugin_retrieval-token-cutter_retrieval-token-cutter__edit_file` instead of Claude's built-in `Edit` tool.
+- For source edits, use the Retrieval Token Cutter MCP tool named `edit_file` instead of Claude's built-in `Edit` tool.
 - Do not call the `Skill` tool with `retrieval-token-cutter`; it is not an installed skill. Use the MCP tools directly.
 
 ## Filtering Strategy

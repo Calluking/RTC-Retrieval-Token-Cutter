@@ -19,16 +19,16 @@ Compare multiple top L2 chunk hits, then patch only the best-matching files.
 
 Do not use Claude's built-in `Edit` tool for this task.
 
-Treat `mcp__plugin_retrieval-token-cutter_retrieval-token-cutter__edit_file` as your edit tool.
+Treat the Retrieval Token Cutter MCP tool named `edit_file` as your edit tool.
 
 ## Coding Task Protocol
 
 Task:
 
 1. Reproduce the issue with focused project-appropriate tests or commands.
-2. Use `mcp__plugin_retrieval-token-cutter_retrieval-token-cutter__search_code` before broad file reads.
+2. Use the Retrieval Token Cutter MCP tool named `search_code` before broad file reads.
 3. Use the failing behavior and semantic search results to locate the best matching implementation site.
-4. Fix the bug using `mcp__plugin_retrieval-token-cutter_retrieval-token-cutter__edit_file` rather than Claude's built-in `Edit` tool.
+4. Fix the bug using the Retrieval Token Cutter MCP tool named `edit_file` rather than Claude's built-in `Edit` tool.
 5. Re-run verification and ensure the relevant tests pass.
 
 Final answer must include:
@@ -42,7 +42,7 @@ Final answer must include:
 - Treat retrieval-token-cutter `search_code` as a replacement for broad `grep` and exploratory `read`.
 - Minimize extra search loops: prefer 1-2 high-quality `search_code` calls with focused symbol-level queries.
 - If returned snippets already include the target file and useful line context, act directly:
-  - edit the code immediately with `mcp__plugin_retrieval-token-cutter_retrieval-token-cutter__edit_file`, or
+  - edit the code immediately with the Retrieval Token Cutter MCP tool named `edit_file`, or
   - run the next concrete action (patch/test) without additional broad reads.
 - Avoid reading many unrelated files after a good hit; keep turns and token usage low.
 - Only perform extra reads when required to verify safety or dependencies for the exact patch.

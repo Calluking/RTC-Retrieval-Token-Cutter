@@ -31,29 +31,32 @@ Retrieval Token Cutter 提供两个本地插件：
 
 ![运行架构](<docs/assets/readme/RTC/CN_Runtime Architecture.png>)
 
-## 环境要求
-
-- Python 3.11+
-- Go 1.21+
-- Claude Code CLI、OpenClaw CLI，或两者都安装并已登录
-- OpenAI 兼容的 embedding endpoint 和 API key
-- Conda，仅在使用 SWE runner 默认本地验证环境时需要
-
 ## 快速开始
 
 在全新 checkout 中先准备一次：
 
 ```bash
-cd /path/to/retrieval-token-cutter
+git clone https://github.com/Calluking/RTC-Retrieval-Token-Cutter.git
+cd RTC-Retrieval-Token-Cutter
 ./bootstrap.sh
-$EDITOR setup_env.sh
-source setup_env.sh
 ```
 
-至少在 `setup_env.sh` 顶部的用户可编辑区设置：
+导出模型和 embedding 设置：
 
 ```bash
-export RTC_EMBEDDING_API_KEY="<your-key>"
+export DEEPSEEK_API_KEY="<your-deepseek-key>"
+export DEEPSEEK_BASE_URL="https://api.deepseek.com"
+export OPENCLAW_MODEL="deepseek/deepseek-v4-flash"
+export RTC_EMBEDDING_API_KEY="<your-embedding-key>"
+export RTC_EMBEDDING_BASE_URL="https://api.openai-proxy.org"
+export RTC_EMBEDDING_MODEL="text-embedding-3-small"
+export ANTHROPIC_MODEL="haiku"
+```
+
+然后加载设置：
+
+```bash
+source setup_env.sh
 ```
 
 `./bootstrap.sh` 会创建 `.venv`、安装 `requirements.txt` 中的运行时依赖，
@@ -62,39 +65,20 @@ export RTC_EMBEDDING_API_KEY="<your-key>"
 
 ![全新 clone 快速开始](<docs/assets/readme/RTC/CN_Fresh Clone Start.png>)
 
-常用变体：
-
-```bash
-./bootstrap.sh --help
-./bootstrap.sh --force-agfs
-./bootstrap.sh --install-openclaw-plugin
-./bootstrap.sh --install-swe-deps
-```
-
-如果想手动执行同样的步骤：
-
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-./bootstrap.sh --skip-python --skip-agfs
-make -C agfs build
-```
-
 ## 启动 Claude
 
 在你希望 Claude 修改的项目目录中运行：
 
 ```bash
 cd /path/to/project
-/path/to/retrieval-token-cutter/claude-plugin/bin/rtc-claude
+$RTC_DIR/claude-plugin/bin/rtc-claude
 ```
 
 这个 helper 会加载 `setup_env.sh`，再带上插件目录启动 Claude。如果你的 shell 已经导出了同样的 RTC 环境变量，也可以直接运行：
 
 ```bash
 cd /path/to/project
-claude --plugin-dir /path/to/retrieval-token-cutter/claude-plugin
+claude --plugin-dir "$RTC_DIR/claude-plugin"
 ```
 
 不要传 `--mcp-config`；Claude 插件自带 `.mcp.json`。
@@ -104,7 +88,8 @@ claude --plugin-dir /path/to/retrieval-token-cutter/claude-plugin
 最小 OpenClaw 流程：
 
 ```bash
-cd /path/to/retrieval-token-cutter
+git clone https://github.com/Calluking/RTC-Retrieval-Token-Cutter.git
+cd RTC-Retrieval-Token-Cutter
 ./bootstrap.sh --install-openclaw-plugin
 $EDITOR setup_env.sh
 source setup_env.sh
@@ -126,6 +111,14 @@ workspace。OpenClaw 原生 shell 运行 `pwd` 时，仍可能显示内部 works
 ```text
 The target project is /path/to/project. Run cd /path/to/project && <command>.
 ```
+
+## 环境要求
+
+- Python 3.11+
+- Go 1.21+
+- Claude Code CLI、OpenClaw CLI，或两者都安装并已登录
+- OpenAI 兼容的 embedding endpoint 和 API key
+- Conda，仅在使用 SWE runner 默认本地验证环境时需要
 
 ## 验证
 
