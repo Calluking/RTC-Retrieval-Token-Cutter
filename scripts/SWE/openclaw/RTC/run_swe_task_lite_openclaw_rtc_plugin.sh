@@ -86,7 +86,7 @@ ensure_python_runtime
 _swe_prompt_exports="$(
   REPO_BASE="$REPO_BASE" \
   SWE_PROMPT_KIND="openclaw_rtc" \
-  "$PY_BIN" "$SCRIPT_DIR/../../resolve_swe_lite_instance.py"
+  "$PY_BIN" "$_SCRIPTS_MCP_DIR/../../resolve_swe_lite_instance.py"
 )" || {
   echo "[setup] Failed to resolve SWE-bench instance metadata for ${SWE_LITE_INSTANCE_ID:-<unset>}." >&2
   exit 1
@@ -287,6 +287,10 @@ export RTC_OPENCLAW_AUTO_STOP="${RTC_OPENCLAW_AUTO_STOP:-1}"
 export RTC_OPENCLAW_READ_TOOL_POLICY="${RTC_OPENCLAW_READ_TOOL_POLICY:-advisory}"
 export RTC_OPENCLAW_SOUL_POLICY="${RTC_OPENCLAW_SOUL_POLICY:-none}"
 export RTC_PLUGIN_START_WAIT="${RTC_PLUGIN_START_WAIT:-60}"
+export RTC_SWE_COPY_AGFS_RUNTIME="${RTC_SWE_COPY_AGFS_RUNTIME:-1}"
+if [ -z "${AGFS_BIN:-}" ] && [ -x "$RTC_DIR/agfs/build/agfs-server" ]; then
+  export AGFS_BIN="$RTC_DIR/agfs/build/agfs-server"
+fi
 export RTC_FILTER_ENABLED="${RTC_FILTER_ENABLED:-0}"
 export RTC_FILTER_NATIVE_READ="${RTC_FILTER_NATIVE_READ:-0}"
 export RTC_FILTER_NATIVE_BASH="${RTC_FILTER_NATIVE_BASH:-0}"
