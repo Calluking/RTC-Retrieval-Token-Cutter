@@ -185,3 +185,9 @@ six runner modes, run commands, output locations, and log checks.
 
 This project is licensed under the Mulan Permissive Software License v2
 (`MulanPSL-2.0`). See [LICENSE](LICENSE).
+
+## References
+
+- [AGFS](https://github.com/c4pt0r/agfs): RTC bundles and builds the local AGFS
+  server under [agfs/](agfs/) and uses `pyagfs` for local memory/file-service
+  operations.

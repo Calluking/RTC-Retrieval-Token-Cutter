@@ -38,79 +38,9 @@ PY
 ensure_python_runtime
 
 prompt_exports="$(
-  REPO_BASE="$REPO_BASE" "$PY_BIN" - <<'PY'
-import json
-import os
-import sys
-import urllib.parse
-import urllib.request
-
-DATASET = "princeton-nlp/SWE-bench_Lite"
-SPLIT = "test"
-BASE = "https://datasets-server.huggingface.co/rows"
-
-target = (os.environ.get("SWE_LITE_INSTANCE_ID") or "").strip()
-repo_base = os.environ["REPO_BASE"]
-cached_inst_path = os.path.join(repo_base, target, "instance.json") if target else ""
-
-def fetch_rows(offset: int, length: int = 100) -> dict:
-    query = urllib.parse.urlencode({
-        "dataset": DATASET,
-        "config": "default",
-        "split": SPLIT,
-        "offset": str(offset),
-        "length": str(length),
-    })
-    with urllib.request.urlopen(f"{BASE}?{query}", timeout=120) as response:
-        return json.loads(response.read().decode("utf-8"))
-
-def find_row() -> dict:
-    if cached_inst_path and os.path.isfile(cached_inst_path):
-        with open(cached_inst_path, "r", encoding="utf-8") as f:
-            return json.load(f)
-    first = fetch_rows(0, 1)
-    total = int(first.get("num_rows_total", 0))
-    if not target:
-        return first["rows"][0]["row"]
-    for offset in range(0, max(total, 0), 100):
-        block = fetch_rows(offset, 100)
-        for item in block.get("rows", []):
-            row = item["row"]
-            if row.get("instance_id") == target:
-                return row
-    print(f"No instance_id={target!r} in {SPLIT!r} split of {DATASET} (n={total}).", file=sys.stderr)
-    sys.exit(1)
-
-row = find_row()
-instance_id = row["instance_id"]
-repo = row["repo"]
-base_commit = row["base_commit"]
-problem = (row.get("problem_statement") or "").strip()
-
-instance_path = os.path.join(repo_base, instance_id, "instance.json")
-os.makedirs(os.path.dirname(instance_path), exist_ok=True)
-with open(instance_path, "w", encoding="utf-8") as f:
-    json.dump(row, f, indent=2, ensure_ascii=False)
-    f.write("\n")
-
-def esc(value: str) -> str:
-    return json.dumps(value)
-
-print(f"export SWE_INSTANCE_ID={esc(instance_id)}")
-print(f"export SWE_REPO={esc(repo)}")
-print(f"export SWE_BASE_COMMIT={esc(base_commit)}")
-print(f"export SWE_INSTANCE_JSON={esc(os.path.abspath(instance_path))}")
-
-prompt = f"""{problem}
-
-Generate a patch that resolves the issue.
-"""
-
-prompt_path = os.path.join(repo_base, instance_id, "PROMPT_PLAIN.txt")
-with open(prompt_path, "w", encoding="utf-8") as f:
-    f.write(prompt)
-print(f"export SWE_PROMPT_FILE={esc(os.path.abspath(prompt_path))}")
-PY
+  REPO_BASE="$REPO_BASE" \
+  SWE_PROMPT_KIND="basic" \
+  "$PY_BIN" "$SCRIPT_DIR/../../resolve_swe_lite_instance.py"
 )" || {
   echo "[setup] Failed to resolve SWE-bench instance metadata for ${SWE_LITE_INSTANCE_ID:-<unset>}." >&2
   exit 1
