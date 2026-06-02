@@ -87,9 +87,46 @@ run_apt() {
   fi
 }
 
+install_ripgrep_with_brew() {
+  prompt_yes_no "Missing rg/ripgrep. Install it with Homebrew now?" "y" || \
+    die "missing rg; install it with: brew install ripgrep"
+  brew install ripgrep || die "failed to install ripgrep with Homebrew"
+}
+
+ensure_ripgrep() {
+  have rg && return 0
+
+  if have apt-get; then
+    prompt_yes_no "Missing rg/ripgrep. Install it with apt-get now?" "y" || \
+      die "missing rg; install it with: sudo apt-get install ripgrep"
+    run_apt update || die "cannot run apt-get update for ripgrep"
+    run_apt install -y ripgrep || die "failed to install ripgrep"
+    have rg || die "ripgrep installed, but rg is still not on PATH"
+    return 0
+  fi
+
+  if [ "$(uname -s 2>/dev/null || true)" = "Darwin" ]; then
+    have brew || die "missing rg and Homebrew; install Homebrew, then run: brew install ripgrep"
+    install_ripgrep_with_brew
+    have rg || die "ripgrep installed, but rg is still not on PATH; open a new shell or check Homebrew PATH"
+    return 0
+  fi
+
+  if have brew; then
+    install_ripgrep_with_brew
+    have rg || die "ripgrep installed, but rg is still not on PATH"
+    return 0
+  fi
+
+  die "missing rg/ripgrep; install ripgrep with your system package manager and rerun bootstrap"
+}
+
 ensure_system_deps() {
   [ "$INSTALL_SYSTEM_DEPS" -eq 1 ] || return 0
-  have apt-get || return 0
+  if ! have apt-get; then
+    ensure_ripgrep
+    return 0
+  fi
 
   local missing=0
   local cmd
@@ -115,6 +152,7 @@ ensure_system_deps() {
   run_apt install -y \
     ca-certificates curl git make build-essential ripgrep \
     python3 python3-venv python3-pip golang-go || die "failed to install Ubuntu packages"
+  have rg || die "ripgrep installed, but rg is still not on PATH"
 }
 
 ensure_openclaw_cli() {
