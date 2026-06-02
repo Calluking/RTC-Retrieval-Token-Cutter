@@ -24,7 +24,7 @@ cd /path/to/RTC-Retrieval-Token-Cutter
 Prepare RTC once:
 
 ```bash
-./bootstrap.sh
+./bootstrap.sh --install-swe-deps
 ```
 
 Load your local RTC settings:

@@ -24,7 +24,7 @@ cd /path/to/RTC-Retrieval-Token-Cutter
 首次准备 RTC：
 
 ```bash
-./bootstrap.sh
+./bootstrap.sh --install-swe-deps
 ```
 
 加载本地 RTC 设置：
