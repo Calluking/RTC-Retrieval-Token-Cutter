@@ -72,19 +72,29 @@ def _start_backend_if_needed() -> None:
         return
     if _backend_healthy():
         return
-    _STARTED_BACKEND = True
     plugin = _plugin_root()
     env = os.environ.copy()
     env.setdefault("PY_BIN", sys.executable)
     wait = os.environ.get("RTC_PLUGIN_START_WAIT", "45")
-    subprocess.Popen(
+    try:
+        timeout = max(5.0, float(wait) + 10.0)
+    except ValueError:
+        wait = "45"
+        timeout = 55.0
+    proc = subprocess.run(
         [sys.executable, str(plugin / "scripts" / "rtc_terminal.py"), "start", "--wait", wait],
         cwd=str(plugin.parent),
         env=env,
-        stdout=sys.stderr,
+        stdout=subprocess.DEVNULL,
         stderr=sys.stderr,
-        start_new_session=True,
+        text=True,
+        timeout=timeout,
+        check=False,
     )
+    if proc.returncode == 0:
+        _STARTED_BACKEND = True
+    elif not _backend_healthy():
+        print(f"[rtc-mcp] backend auto-start failed with exit code {proc.returncode}", file=sys.stderr)
 
 
 def _stop_backend_if_owned() -> None:

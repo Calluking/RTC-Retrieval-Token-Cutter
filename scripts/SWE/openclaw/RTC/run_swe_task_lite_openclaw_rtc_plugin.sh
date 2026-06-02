@@ -343,9 +343,14 @@ export EMBEDDING_PROVIDER="${EMBEDDING_PROVIDER:-openai}"
 export RTC_EMBEDDING_MODEL="${RTC_EMBEDDING_MODEL:-text-embedding-3-small}"
 export RTC_EMBEDDING_BASE_URL="${RTC_EMBEDDING_BASE_URL:-https://api.openai-proxy.org}"
 export RTC_EMBEDDING_API_KEY="${RTC_EMBEDDING_API_KEY:-}"
-export RTC_CODE_SEARCH_CANDIDATE_MAX_FILES="${RTC_CODE_SEARCH_CANDIDATE_MAX_FILES:-80}"
-export RTC_CODE_SEARCH_EMBED_MAX_FILES="${RTC_CODE_SEARCH_EMBED_MAX_FILES:-80}"
-export RTC_CODE_SEARCH_MAX_SNIPPETS="${RTC_CODE_SEARCH_MAX_SNIPPETS:-500}"
+export RTC_CODE_SEARCH_CANDIDATE_MAX_FILES="${RTC_CODE_SEARCH_CANDIDATE_MAX_FILES:-40}"
+export RTC_CODE_SEARCH_EMBED_MAX_FILES="${RTC_CODE_SEARCH_EMBED_MAX_FILES:-8}"
+export RTC_CODE_SEARCH_MAX_SNIPPETS="${RTC_CODE_SEARCH_MAX_SNIPPETS:-120}"
+export RTC_CODE_SEARCH_INGEST_CANDIDATES="${RTC_CODE_SEARCH_INGEST_CANDIDATES:-1}"
+export RTC_CODE_SEARCH_INGEST_ASYNC="${RTC_CODE_SEARCH_INGEST_ASYNC:-1}"
+export RTC_CODE_SEARCH_INGEST_MAX_FILES="${RTC_CODE_SEARCH_INGEST_MAX_FILES:-3}"
+export RTC_CODE_SEARCH_INGEST_MAX_CHUNKS="${RTC_CODE_SEARCH_INGEST_MAX_CHUNKS:-40}"
+export RTC_CODE_SEARCH_INGEST_WORKERS="${RTC_CODE_SEARCH_INGEST_WORKERS:-2}"
 export RTC_CODE_FUSE_MODE="${RTC_CODE_FUSE_MODE:-weighted_rrf}"
 export RTC_CODE_FUSE_W_EMBED="${RTC_CODE_FUSE_W_EMBED:-0.33}"
 export RTC_CODE_FUSE_W_BM25="${RTC_CODE_FUSE_W_BM25:-0.17}"
@@ -360,9 +365,9 @@ export RTC_OPENCLAW_AUTO_STOP="${RTC_OPENCLAW_AUTO_STOP:-1}"
 export RTC_OPENCLAW_READ_TOOL_POLICY="${RTC_OPENCLAW_READ_TOOL_POLICY:-advisory}"
 export RTC_OPENCLAW_SOUL_POLICY="${RTC_OPENCLAW_SOUL_POLICY:-none}"
 export RTC_PLUGIN_START_WAIT="${RTC_PLUGIN_START_WAIT:-60}"
-export RTC_FILTER_ENABLED="${RTC_FILTER_ENABLED:-1}"
-export RTC_FILTER_NATIVE_READ="${RTC_FILTER_NATIVE_READ:-1}"
-export RTC_FILTER_NATIVE_BASH="${RTC_FILTER_NATIVE_BASH:-1}"
+export RTC_FILTER_ENABLED="${RTC_FILTER_ENABLED:-0}"
+export RTC_FILTER_NATIVE_READ="${RTC_FILTER_NATIVE_READ:-0}"
+export RTC_FILTER_NATIVE_BASH="${RTC_FILTER_NATIVE_BASH:-0}"
 
 ensure_embedding_backend() {
   [ "${RTC_EMBEDDING_PROBE_REQUIRED:-0}" = "1" ] || return 0
@@ -481,6 +486,12 @@ import sys
 print(json.dumps(sys.argv[1]))
 PY
 }
+json_bool() {
+  case "${1:-0}" in
+    1|true|TRUE|yes|YES|on|ON) printf 'true' ;;
+    *) printf 'false' ;;
+  esac
+}
 
 echo "[setup] Writing per-run OpenClaw RTC plugin config" >&2
 openclaw config set plugins.load.paths "[$(json_string "$OPENCLAW_PLUGIN_DIR")]" --strict-json \
@@ -499,11 +510,11 @@ openclaw config set plugins.entries.retrieval-token-cutter.config.injectCodePoli
   > "$LOGS_DIR/openclaw-config-inject.log" 2>&1
 openclaw config set plugins.entries.retrieval-token-cutter.config.readToolPolicy "$(json_string "$RTC_OPENCLAW_READ_TOOL_POLICY")" --strict-json \
   > "$LOGS_DIR/openclaw-config-read-tool-policy.log" 2>&1
-openclaw config set plugins.entries.retrieval-token-cutter.config.filterEnabled true --strict-json \
+openclaw config set plugins.entries.retrieval-token-cutter.config.filterEnabled "$(json_bool "$RTC_FILTER_ENABLED")" --strict-json \
   > "$LOGS_DIR/openclaw-config-filter-enabled.log" 2>&1
-openclaw config set plugins.entries.retrieval-token-cutter.config.filterNativeRead true --strict-json \
+openclaw config set plugins.entries.retrieval-token-cutter.config.filterNativeRead "$(json_bool "$RTC_FILTER_NATIVE_READ")" --strict-json \
   > "$LOGS_DIR/openclaw-config-filter-read.log" 2>&1
-openclaw config set plugins.entries.retrieval-token-cutter.config.filterNativeExec true --strict-json \
+openclaw config set plugins.entries.retrieval-token-cutter.config.filterNativeExec "$(json_bool "$RTC_FILTER_NATIVE_BASH")" --strict-json \
   > "$LOGS_DIR/openclaw-config-filter-exec.log" 2>&1
 
 openclaw gateway restart \

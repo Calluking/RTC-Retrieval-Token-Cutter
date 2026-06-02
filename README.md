@@ -178,33 +178,8 @@ traffic bypasses HTTP(S)/SOCKS proxies.
 ## SWE Lite Runner
 
 The SWE runners build a task prompt and start Claude or OpenClaw
-non-interactively.
-
-```bash
-# Claude legacy
-source scripts/SWE/claude/legacy/setup_swe_env.sh
-./scripts/SWE/claude/legacy/run_swe_task_lite_plain_claude.sh
-
-# Claude RTC/plugin
-source scripts/SWE/claude/RTC/setup_swe_env.sh
-./scripts/SWE/claude/RTC/run_swe_task_lite_rtc_plugin.sh
-
-# OpenClaw legacy
-source scripts/SWE/openclaw/legacy/setup_swe_env.sh
-./scripts/SWE/openclaw/legacy/run_swe_task_lite_plain_openclaw.sh
-
-# OpenClaw RTC/plugin
-source scripts/SWE/openclaw/RTC/setup_swe_env.sh
-./scripts/SWE/openclaw/RTC/run_swe_task_lite_openclaw_rtc_plugin.sh
-```
-
-By default, `scripts/SWE/claude/RTC/setup_swe_env.sh` sets
-`SWE_VALIDATION_FORCE_LOCAL=1`. Validation then runs in the local
-task-specific SWE-bench environment instead of the official Docker harness.
-
-Generated SWE data is ignored by git. RTC run output goes under
-`scripts/SWE/claude/RTC/output_logs/`; reusable repository clones live outside
-the project under `${XDG_CACHE_HOME:-~/.cache}/retrieval-token-cutter/swe/rtc/cache/repo`.
+non-interactively. See [scripts/SWE/README.md](scripts/SWE/README.md) for the
+six runner modes, run commands, output locations, and log checks.
 
 ## License
 

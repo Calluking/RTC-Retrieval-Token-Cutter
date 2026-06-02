@@ -165,32 +165,9 @@ RTC/AGFS 请求走 HTTP(S)/SOCKS 代理。
 
 ## SWE Lite Runner
 
-SWE runner 会生成任务提示词，并以非交互方式启动 Claude 或 OpenClaw。
-
-```bash
-# Claude legacy
-source scripts/SWE/claude/legacy/setup_swe_env.sh
-./scripts/SWE/claude/legacy/run_swe_task_lite_plain_claude.sh
-
-# Claude RTC/plugin
-source scripts/SWE/claude/RTC/setup_swe_env.sh
-./scripts/SWE/claude/RTC/run_swe_task_lite_rtc_plugin.sh
-
-# OpenClaw legacy
-source scripts/SWE/openclaw/legacy/setup_swe_env.sh
-./scripts/SWE/openclaw/legacy/run_swe_task_lite_plain_openclaw.sh
-
-# OpenClaw RTC/plugin
-source scripts/SWE/openclaw/RTC/setup_swe_env.sh
-./scripts/SWE/openclaw/RTC/run_swe_task_lite_openclaw_rtc_plugin.sh
-```
-
-默认情况下，`scripts/SWE/claude/RTC/setup_swe_env.sh` 会设置
-`SWE_VALIDATION_FORCE_LOCAL=1`。验证会在任务专用的本地 SWE-bench 环境中运行，而不是官方 Docker harness。
-
-生成数据不会进入 git。RTC 运行输出位于
-`scripts/SWE/claude/RTC/output_logs/`；可复用的仓库 clone 缓存在项目外的
-`${XDG_CACHE_HOME:-~/.cache}/retrieval-token-cutter/swe/rtc/cache/repo`。
+SWE runner 会生成任务提示词，并以非交互方式启动 Claude 或 OpenClaw。六种
+runner 模式、运行命令、输出位置和日志检查见
+[scripts/SWE/README_CN.md](scripts/SWE/README_CN.md)。
 
 ## 许可证
 

@@ -16,10 +16,10 @@ export SWE_CACHE_DIR="${SWE_CACHE_DIR:-$RTC_CACHE_HOME/swe/openclaw/rtc-filter/c
 export REPO_BASE="${REPO_BASE:-$SWE_CACHE_DIR/repo}"
 export SWE_OUTPUT_ROOT="${SWE_OUTPUT_ROOT:-$_HERE/output_logs}"
 
-export RTC_INJECT_FILTERING_PROMPT="${RTC_INJECT_FILTERING_PROMPT:-1}"
-export RTC_FILTER_ENABLED="${RTC_FILTER_ENABLED:-1}"
-export RTC_FILTER_NATIVE_READ="${RTC_FILTER_NATIVE_READ:-1}"
-export RTC_FILTER_NATIVE_BASH="${RTC_FILTER_NATIVE_BASH:-1}"
+export RTC_INJECT_FILTERING_PROMPT=1
+export RTC_FILTER_ENABLED=1
+export RTC_FILTER_NATIVE_READ=1
+export RTC_FILTER_NATIVE_BASH=1
 
 # Reuse the OpenClaw RTC defaults after setting this mode's cache/output roots.
 # shellcheck disable=SC1091

@@ -150,6 +150,29 @@ def _code_search_ingest_candidates_enabled() -> bool:
     return raw.strip().lower() in {"1", "true", "yes", "on"}
 
 
+def _code_search_ingest_async_enabled() -> bool:
+    raw = os.environ.get("RTC_CODE_SEARCH_INGEST_ASYNC", "1")
+    return raw.strip().lower() not in {"0", "false", "no", "off"}
+
+
+def _code_search_ingest_max_files() -> int:
+    raw = os.environ.get("RTC_CODE_SEARCH_INGEST_MAX_FILES", "3")
+    try:
+        n = int(raw)
+    except ValueError:
+        n = 3
+    return max(0, min(n, 50))
+
+
+def _code_search_ingest_max_chunks() -> int:
+    raw = os.environ.get("RTC_CODE_SEARCH_INGEST_MAX_CHUNKS", "40")
+    try:
+        n = int(raw)
+    except ValueError:
+        n = 40
+    return max(0, min(n, 500))
+
+
 def _forced_code_search_limit() -> int | None:
     raw = (os.environ.get("RTC_SEARCH_FORCE_LIMIT") or os.environ.get("RTC_SEARCH_LIMIT") or "").strip()
     if not raw:
@@ -974,6 +997,34 @@ class MemoryService:
     ) -> list[str]:
         if not candidate_paths or not self.get_write_api():
             return []
+        max_ingest = _code_search_ingest_max_files()
+        if max_ingest <= 0:
+            return []
+        max_chunks = _code_search_ingest_max_chunks()
+        if max_chunks <= 0:
+            return []
+
+        capped_paths: list[str] = []
+        chunk_count = 0
+        for rel in candidate_paths:
+            if len(capped_paths) >= max_ingest:
+                break
+            full_path = (workspace_root / rel).resolve()
+            try:
+                text = full_path.read_text(encoding="utf-8")
+                chunks = chunk_source_code(text, str(full_path), language=detect_language(str(full_path)))
+            except Exception:
+                continue
+            next_count = len(chunks)
+            if next_count <= 0:
+                continue
+            if chunk_count + next_count > max_chunks:
+                continue
+            capped_paths.append(rel)
+            chunk_count += next_count
+        candidate_paths = capped_paths
+        if not candidate_paths:
+            return []
         project_id = (
             params.get("projectId")
             or params.get("project_id")
@@ -1021,6 +1072,47 @@ class MemoryService:
                 if res and res.get("ok"):
                     ingested.append(rel)
         return ingested
+
+    def _ingest_candidate_paths_background(
+        self,
+        workspace_root: Path,
+        params: dict,
+        ctx: RequestContext,
+        *,
+        candidate_paths: list[str],
+    ) -> dict:
+        """Dispatch candidate persistence without blocking the search response."""
+        if not candidate_paths or not self.get_write_api():
+            return {"background": False, "reason": "no_candidates_or_write_api"}
+
+        def run() -> None:
+            try:
+                ingested = self._ingest_candidate_paths(
+                    workspace_root,
+                    params,
+                    ctx,
+                    candidate_paths=candidate_paths,
+                )
+                logger.info(
+                    "code search background candidate ingest completed: files=%d workspace=%s",
+                    len(ingested),
+                    workspace_root,
+                )
+            except Exception as exc:
+                logger.warning("code search background candidate ingest failed: %s", exc, exc_info=True)
+
+        thread = threading.Thread(
+            target=run,
+            name="rtc-code-search-candidate-ingest",
+            daemon=True,
+        )
+        thread.start()
+        return {
+            "background": True,
+            "candidate_files_considered": len(candidate_paths),
+            "max_files": _code_search_ingest_max_files(),
+            "max_chunks": _code_search_ingest_max_chunks(),
+        }
 
     def _filter_hits_to_candidate_paths(
         self,
@@ -4162,17 +4254,28 @@ class MemoryService:
             snippets = self._cap_code_search_snippets(snippets, query=query, max_snippets=max_snippets)
             bootstrap["snippet_count"] = len(snippets)
             if _code_search_ingest_candidates_enabled():
-                t_ingest = time.perf_counter()
-                ingested = self._ingest_candidate_paths(
-                    workspace_root,
-                    params,
-                    ctx,
-                    candidate_paths=candidate_paths,
-                )
-                timings["candidate_ingest_sec"] = round(time.perf_counter() - t_ingest, 3)
-                bootstrap["ingested_paths"] = ingested
-                bootstrap["ingested_count"] = len(ingested)
                 bootstrap["candidate_ingest_enabled"] = True
+                if _code_search_ingest_async_enabled():
+                    timings["candidate_ingest_sec"] = 0.0
+                    bootstrap["candidate_ingest_async"] = True
+                    bootstrap["candidate_ingest_dispatch"] = self._ingest_candidate_paths_background(
+                        workspace_root,
+                        params,
+                        ctx,
+                        candidate_paths=candidate_paths,
+                    )
+                else:
+                    t_ingest = time.perf_counter()
+                    ingested = self._ingest_candidate_paths(
+                        workspace_root,
+                        params,
+                        ctx,
+                        candidate_paths=candidate_paths,
+                    )
+                    timings["candidate_ingest_sec"] = round(time.perf_counter() - t_ingest, 3)
+                    bootstrap["ingested_paths"] = ingested
+                    bootstrap["ingested_count"] = len(ingested)
+                    bootstrap["candidate_ingest_async"] = False
             else:
                 timings["candidate_ingest_sec"] = 0.0
                 bootstrap["candidate_ingest_enabled"] = False

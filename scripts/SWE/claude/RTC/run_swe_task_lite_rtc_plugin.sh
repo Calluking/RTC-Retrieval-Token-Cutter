@@ -7,8 +7,6 @@ set -euo pipefail
 # paths against the wrong project.
 
 _SCRIPTS_MCP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-RTC_CACHE_HOME="${RTC_CACHE_HOME:-${XDG_CACHE_HOME:-$HOME/.cache}/retrieval-token-cutter}"
-CACHE_DIR="${SWE_CACHE_DIR:-${RTC_SWE_CACHE_DIR:-$RTC_CACHE_HOME/swe/rtc/cache}}"
 # Loopback must not use HTTP(S) proxy; AGFS and RTC run on localhost.
 export NO_PROXY="127.0.0.1,localhost,::1${NO_PROXY:+,${NO_PROXY}}"
 export no_proxy="$NO_PROXY"
@@ -32,6 +30,26 @@ if [ -f "$PROJECT_ROOT/setup_env.sh" ]; then
   CLAUDE_PLUGIN_DIR="${RTC_CLAUDE_PLUGIN_DIR:-$CLAUDE_PLUGIN_DIR}"
 fi
 
+# SWE runner defaults. Keep them in this runner so it can be executed directly.
+export RTC_CACHE_HOME="${RTC_CACHE_HOME:-${XDG_CACHE_HOME:-$HOME/.cache}/retrieval-token-cutter}"
+CACHE_DIR="${SWE_CACHE_DIR:-${RTC_SWE_CACHE_DIR:-$RTC_CACHE_HOME/swe/rtc/cache}}"
+export REPO_BASE="${REPO_BASE:-$CACHE_DIR/repo}"
+export SWE_OUTPUT_ROOT="${SWE_OUTPUT_ROOT:-$_SCRIPTS_MCP_DIR/output_logs}"
+export RTC_CODE_TOGGLE_FORCE="${RTC_CODE_TOGGLE_FORCE:-true}"
+export EMBEDDING_PROVIDER="${EMBEDDING_PROVIDER:-openai}"
+export RTC_EMBEDDING_MODEL="${RTC_EMBEDDING_MODEL:-text-embedding-3-small}"
+export RTC_CODE_SEARCH_CANDIDATE_MAX_FILES="${RTC_CODE_SEARCH_CANDIDATE_MAX_FILES:-80}"
+export RTC_CODE_SEARCH_EMBED_MAX_FILES="${RTC_CODE_SEARCH_EMBED_MAX_FILES:-80}"
+export RTC_CODE_SEARCH_MAX_SNIPPETS="${RTC_CODE_SEARCH_MAX_SNIPPETS:-500}"
+export RTC_CODE_FUSE_MODE="${RTC_CODE_FUSE_MODE:-weighted_rrf}"
+export RTC_CODE_FUSE_W_EMBED="${RTC_CODE_FUSE_W_EMBED:-0.33}"
+export RTC_CODE_FUSE_W_BM25="${RTC_CODE_FUSE_W_BM25:-0.17}"
+export RTC_CODE_FUSE_W_CTAGS="${RTC_CODE_FUSE_W_CTAGS:-0.17}"
+export RTC_CODE_FUSE_W_GRAPH="${RTC_CODE_FUSE_W_GRAPH:-0.33}"
+export RTC_BOOTSTRAP_MAX_FILES="${RTC_BOOTSTRAP_MAX_FILES:-40}"
+export RTC_BOOTSTRAP_FULL_INDEX_CAP_FILES="${RTC_BOOTSTRAP_FULL_INDEX_CAP_FILES:-40}"
+export RTC_START_LOCAL_EMBED_SERVER="${RTC_START_LOCAL_EMBED_SERVER:-0}"
+
 # Priority: first CLI arg > env > default.
 # Default to a Flask SWE-bench Lite task for faster Python-centric debugging.
 export SWE_LITE_INSTANCE_ID="${1:-${SWE_LITE_INSTANCE_ID:-pallets__flask-4045}}"
@@ -46,7 +64,6 @@ export RUN_IDX
 RTC_BASE_PORT="${RTC_BASE_PORT:-8090}"
 AGFS_BASE_PORT="${AGFS_BASE_PORT:-1833}"
 
-REPO_BASE="${REPO_BASE:-$CACHE_DIR/repo}"
 mkdir -p "$REPO_BASE"
 
 ensure_python_runtime() {
@@ -218,7 +235,13 @@ CANON_LOCK="$LOCKS_DIR/${SWE_INSTANCE_ID}.canon.lock"
 cp -a "$SWE_INSTANCE_JSON" "$EXPERIMENT_DIR/instance.json"
 cp -a "$SWE_PROMPT_FILE" "$WORK_DIR/TASK.md"
 export RTC_WORKSPACE_ROOT="${RTC_WORKSPACE_ROOT:-$WORK_DIR}"
-export RTC_INJECT_FILTERING_PROMPT="${RTC_INJECT_FILTERING_PROMPT:-0}"
+
+# Plain RTC mode should exercise code search/edit only. Read/bash output
+# filtering belongs to scripts/SWE/claude/RTC-FILTER.
+export RTC_FILTER_ENABLED=0
+export RTC_FILTER_NATIVE_READ=0
+export RTC_FILTER_NATIVE_BASH=0
+export RTC_INJECT_FILTERING_PROMPT=0
 
 CODE_POLICY_RENDERER="$CLAUDE_PLUGIN_DIR/bin/rtc-render-code-policy"
 if [ "${RTC_APPEND_CODE_POLICY_TO_TASK:-1}" = "1" ] && [ -x "$CODE_POLICY_RENDERER" ]; then
@@ -306,6 +329,11 @@ export RTC_EMBEDDING_API_KEY="${RTC_EMBEDDING_API_KEY:-}"
 export RTC_CODE_SEARCH_CANDIDATE_MAX_FILES="${RTC_CODE_SEARCH_CANDIDATE_MAX_FILES:-80}"
 export RTC_CODE_SEARCH_EMBED_MAX_FILES="${RTC_CODE_SEARCH_EMBED_MAX_FILES:-80}"
 export RTC_CODE_SEARCH_MAX_SNIPPETS="${RTC_CODE_SEARCH_MAX_SNIPPETS:-500}"
+export RTC_CODE_SEARCH_INGEST_CANDIDATES="${RTC_CODE_SEARCH_INGEST_CANDIDATES:-1}"
+export RTC_CODE_SEARCH_INGEST_ASYNC="${RTC_CODE_SEARCH_INGEST_ASYNC:-1}"
+export RTC_CODE_SEARCH_INGEST_MAX_FILES="${RTC_CODE_SEARCH_INGEST_MAX_FILES:-3}"
+export RTC_CODE_SEARCH_INGEST_MAX_CHUNKS="${RTC_CODE_SEARCH_INGEST_MAX_CHUNKS:-40}"
+export RTC_CODE_SEARCH_INGEST_WORKERS="${RTC_CODE_SEARCH_INGEST_WORKERS:-2}"
 export RTC_CODE_FUSE_MODE="${RTC_CODE_FUSE_MODE:-weighted_rrf}"
 export RTC_CODE_FUSE_W_EMBED="${RTC_CODE_FUSE_W_EMBED:-0.33}"
 export RTC_CODE_FUSE_W_BM25="${RTC_CODE_FUSE_W_BM25:-0.17}"
@@ -321,24 +349,6 @@ export RTC_PLUGIN_START_WAIT="${RTC_PLUGIN_START_WAIT:-60}"
 export RTC_INJECT_CODE_POLICY_ON_SUBMIT="${RTC_INJECT_CODE_POLICY_ON_SUBMIT:-0}"
 export CLAUDE_CODE_DEBUG_LOGS_DIR="${CLAUDE_CODE_DEBUG_LOGS_DIR:-$LOGS_DIR}"
 export CLAUDE_CODE_DEBUG_LOG_LEVEL="${CLAUDE_CODE_DEBUG_LOG_LEVEL:-debug}"
-
-CLAUDE_RUN_PLUGIN_DIR="$EXPERIMENT_DIR/claude-plugin-prompt-injection"
-rm -rf "$CLAUDE_RUN_PLUGIN_DIR"
-mkdir -p "$CLAUDE_RUN_PLUGIN_DIR"
-cp -a "$CLAUDE_PLUGIN_DIR"/. "$CLAUDE_RUN_PLUGIN_DIR"/
-if [ "${RTC_DISABLE_PLUGIN_SKILLS_FOR_SWE:-1}" = "1" ]; then
-  rm -rf "$CLAUDE_RUN_PLUGIN_DIR/skills"
-  "$PY_BIN" - "$CLAUDE_RUN_PLUGIN_DIR/.claude-plugin/plugin.json" <<'PY'
-import json
-import sys
-from pathlib import Path
-
-path = Path(sys.argv[1])
-data = json.loads(path.read_text(encoding="utf-8"))
-data.pop("skills", None)
-path.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-PY
-fi
 
 ensure_embedding_backend() {
   [ "${RTC_EMBEDDING_PROBE_REQUIRED:-0}" = "1" ] || return 0
@@ -395,7 +405,6 @@ if [ "${RTC_FORCE_EMBED_DIM_ALIGN:-1}" = "1" ]; then
   esac
 fi
 
-RTC_BACKEND_MANAGED=0
 WORKSPACE_GIT_MOVED=0
 disable_generated_workspace_git() {
   [ "${WORKSPACE_GIT_MOVED:-0}" = "0" ] || return 0
@@ -414,26 +423,14 @@ EOF2
 }
 cleanup_rtc_backend() {
   disable_generated_workspace_git
-  if [ "$RTC_BACKEND_MANAGED" = "1" ]; then
-    "$PY_BIN" "$CLAUDE_PLUGIN_DIR/scripts/rtc_terminal.py" stop >/dev/null 2>&1 || true
-  fi
 }
 trap cleanup_rtc_backend EXIT
-
-echo "[setup] Starting RTC backend for this SWE run: $RTC_RUNTIME_DIR" >&2
-"$PY_BIN" "$CLAUDE_PLUGIN_DIR/scripts/rtc_terminal.py" start --wait "${RTC_PLUGIN_START_WAIT:-60}" >&2
-RTC_BACKEND_MANAGED=1
-
-# The runner starts the isolated backend before Claude begins. Keep plugin
-# auto-start disabled inside the Claude process so MCP calls use this instance
-# instead of racing a second startup path.
-export RTC_PLUGIN_AUTO_START=0
 
 set +e
 (
   cd "$WORK_DIR"
   export PYTHONPATH="$WORK_DIR${PYTHONPATH:+:$PYTHONPATH}"
-  claude --model "$CLAUDE_MODEL" --plugin-dir "$CLAUDE_RUN_PLUGIN_DIR" \
+  claude --model "$CLAUDE_MODEL" --plugin-dir "$CLAUDE_PLUGIN_DIR" \
     --dangerously-skip-permissions \
     --permission-mode bypassPermissions \
     --print --debug-file "$CLAUDE_LOG" < "$WORK_DIR/TASK.md"
