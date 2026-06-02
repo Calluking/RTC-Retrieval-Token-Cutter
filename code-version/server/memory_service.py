@@ -4461,6 +4461,28 @@ class MemoryService:
                         },
                     },
                 }
+            if not retrieval_enabled["semantic"]:
+                return {
+                    "ok": True,
+                    "request_id": f"hybrid-{uuid4()}",
+                    "query": query,
+                    "hits": [],
+                    "hit_count": 0,
+                    "bootstrap": {
+                        **bootstrap,
+                        "fallback": "hybrid_direct",
+                        "hybrid_counts": {
+                            "semantic": 0,
+                            "frequency": len(bm25_hits),
+                            "symbolic": len(ctags_hits),
+                            "embedding": 0,
+                            "bm25": len(bm25_hits),
+                            "ctags": len(ctags_hits),
+                            "graph": len(graph_hits),
+                            "union_candidates": 0,
+                        },
+                    },
+                }
         api = self.get_read_api()
         if api is None:
             return {"ok": False, "reason": "no_read_api"}

@@ -145,10 +145,6 @@ rg -n "Retrieval Token Cutter|FILTER IS TRIGGERED|rtc_search_code|rtc_edit_file"
 | `RTC_EMBEDDING_API_KEY` | 真实语义代码搜索所需的 API key |
 | `RTC_EMBEDDING_BASE_URL` | OpenAI 兼容 embedding endpoint |
 | `RTC_EMBEDDING_MODEL` | Embedding 模型名 |
-| `RTC_RETRIEVAL_SEMANTIC_ENABLED` | 语义/embedding 代码检索开关，默认 `1` |
-| `RTC_RETRIEVAL_GRAPH_ENABLED` | Graph 代码检索开关，默认 `1` |
-| `RTC_RETRIEVAL_SYMBOLIC_ENABLED` | Symbolic/ctags 代码检索开关，默认 `1` |
-| `RTC_RETRIEVAL_FREQUENCY_ENABLED` | Frequency/BM25 代码检索开关，默认 `1` |
 | `PY_BIN` | 可选的插件/后端 Python 覆盖 |
 | `RTC_FILTER_ENABLED` | read/exec 过滤开关，默认 `1` |
 | `RTC_INJECT_FILTERING_PROMPT` | 是否注入过滤策略说明 |

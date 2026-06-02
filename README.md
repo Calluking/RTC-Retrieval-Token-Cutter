@@ -157,10 +157,6 @@ Common settings:
 | `RTC_EMBEDDING_API_KEY` | API key for real semantic code search |
 | `RTC_EMBEDDING_BASE_URL` | OpenAI-compatible embedding endpoint |
 | `RTC_EMBEDDING_MODEL` | Embedding model name |
-| `RTC_RETRIEVAL_SEMANTIC_ENABLED` | Toggle semantic embedding code retrieval, default `1` |
-| `RTC_RETRIEVAL_GRAPH_ENABLED` | Toggle graph code retrieval, default `1` |
-| `RTC_RETRIEVAL_SYMBOLIC_ENABLED` | Toggle symbolic/ctags code retrieval, default `1` |
-| `RTC_RETRIEVAL_FREQUENCY_ENABLED` | Toggle frequency/BM25 code retrieval, default `1` |
 | `PY_BIN` | Optional Python override for plugin/backend runtime |
 | `RTC_FILTER_ENABLED` | Toggle read/exec filtering, default `1` |
 | `RTC_INJECT_FILTERING_PROMPT` | Toggle the filtering-strategy prompt section |
