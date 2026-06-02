@@ -172,3 +172,8 @@ runner 模式、运行命令、输出位置和日志检查见
 ## 许可证
 
 本项目使用木兰宽松许可证第 2 版（`MulanPSL-2.0`）。详见 [LICENSE](LICENSE)。
+
+## 参考
+
+- [AGFS](https://github.com/c4pt0r/agfs)：RTC 在 [agfs/](agfs/) 下内置并构建本地
+  AGFS server，并使用 `pyagfs` 处理本地 memory/file-service 操作。
