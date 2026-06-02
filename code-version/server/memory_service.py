@@ -82,6 +82,30 @@ _DEFAULT_CODE_SEARCH_CANDIDATE_MAX_FILES = 80
 _DEFAULT_CODE_SEARCH_EMBED_MAX_FILES = 80
 _DEFAULT_CODE_SEARCH_MAX_SNIPPETS = 500
 
+_CODE_RETRIEVAL_ENV = {
+    "semantic": "RTC_RETRIEVAL_SEMANTIC_ENABLED",
+    "embedding": "RTC_RETRIEVAL_SEMANTIC_ENABLED",
+    "frequency": "RTC_RETRIEVAL_FREQUENCY_ENABLED",
+    "bm25": "RTC_RETRIEVAL_FREQUENCY_ENABLED",
+    "symbolic": "RTC_RETRIEVAL_SYMBOLIC_ENABLED",
+    "ctags": "RTC_RETRIEVAL_SYMBOLIC_ENABLED",
+    "graph": "RTC_RETRIEVAL_GRAPH_ENABLED",
+}
+
+
+def _env_bool(name: str, default: bool = True) -> bool:
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() not in {"0", "false", "no", "off", ""}
+
+
+def _code_retrieval_enabled(route: str) -> bool:
+    env_name = _CODE_RETRIEVAL_ENV.get(route.lower())
+    if not env_name:
+        return True
+    return _env_bool(env_name, True)
+
 
 def _bootstrap_max_files() -> int:
     raw = os.environ.get("RTC_BOOTSTRAP_MAX_FILES", str(DEFAULT_BOOTSTRAP_INGEST_MAX_FILES))
@@ -2290,10 +2314,10 @@ class MemoryService:
         raw_graph = self._raw_scores_by_uri(graph_score_hits)
 
         fuse_mode = os.environ.get("RTC_CODE_FUSE_MODE", "weighted_rrf").strip().lower()
-        w_embed = float(os.environ.get("RTC_CODE_FUSE_W_EMBED", "0.33"))
-        w_bm25 = float(os.environ.get("RTC_CODE_FUSE_W_BM25", "0.17"))
-        w_ctags = float(os.environ.get("RTC_CODE_FUSE_W_CTAGS", "0.17"))
-        w_graph = float(os.environ.get("RTC_CODE_FUSE_W_GRAPH", "0.33"))
+        w_embed = float(os.environ.get("RTC_CODE_FUSE_W_EMBED", "0.33")) if _code_retrieval_enabled("semantic") else 0.0
+        w_bm25 = float(os.environ.get("RTC_CODE_FUSE_W_BM25", "0.17")) if _code_retrieval_enabled("frequency") else 0.0
+        w_ctags = float(os.environ.get("RTC_CODE_FUSE_W_CTAGS", "0.17")) if _code_retrieval_enabled("symbolic") else 0.0
+        w_graph = float(os.environ.get("RTC_CODE_FUSE_W_GRAPH", "0.33")) if _code_retrieval_enabled("graph") else 0.0
         route_weights = {
             "embedding": w_embed,
             "bm25": w_bm25,
@@ -4253,6 +4277,13 @@ class MemoryService:
             snippets = self._build_candidate_snippets(workspace_root, candidate_paths, ctx=ctx)
             snippets = self._cap_code_search_snippets(snippets, query=query, max_snippets=max_snippets)
             bootstrap["snippet_count"] = len(snippets)
+            retrieval_enabled = {
+                "semantic": _code_retrieval_enabled("semantic"),
+                "frequency": _code_retrieval_enabled("frequency"),
+                "symbolic": _code_retrieval_enabled("symbolic"),
+                "graph": _code_retrieval_enabled("graph"),
+            }
+            bootstrap["retrieval_enabled"] = retrieval_enabled
             if _code_search_ingest_candidates_enabled():
                 bootstrap["candidate_ingest_enabled"] = True
                 if _code_search_ingest_async_enabled():
@@ -4279,40 +4310,56 @@ class MemoryService:
             else:
                 timings["candidate_ingest_sec"] = 0.0
                 bootstrap["candidate_ingest_enabled"] = False
-            t2 = time.perf_counter()
-            embed_score_hits = self._embed_rank_candidate_hits(
-                workspace_root,
-                candidate_paths=candidate_paths,
-                query=self._code_embedding_query(query, grep_terms=grep_terms, glob_patterns=glob_patterns),
-                limit=len(snippets),
-                snippets=snippets,
-            )
+            if retrieval_enabled["semantic"]:
+                t2 = time.perf_counter()
+                embed_score_hits = self._embed_rank_candidate_hits(
+                    workspace_root,
+                    candidate_paths=candidate_paths,
+                    query=self._code_embedding_query(query, grep_terms=grep_terms, glob_patterns=glob_patterns),
+                    limit=len(snippets),
+                    snippets=snippets,
+                )
+                timings["embedding_sec"] = round(time.perf_counter() - t2, 3)
+            else:
+                embed_score_hits = []
+                timings["embedding_sec"] = 0.0
             embed_hits = embed_score_hits[:topn_each]
-            timings["embedding_sec"] = round(time.perf_counter() - t2, 3)
-            t_bm25 = time.perf_counter()
-            bm25_score_hits = self._bm25_rank_candidate_hits(
-                snippets,
-                query=query,
-                limit=len(snippets),
-            )
+            if retrieval_enabled["frequency"]:
+                t_bm25 = time.perf_counter()
+                bm25_score_hits = self._bm25_rank_candidate_hits(
+                    snippets,
+                    query=query,
+                    limit=len(snippets),
+                )
+                timings["bm25_sec"] = round(time.perf_counter() - t_bm25, 3)
+            else:
+                bm25_score_hits = []
+                timings["bm25_sec"] = 0.0
             bm25_hits = bm25_score_hits[:topn_each]
-            timings["bm25_sec"] = round(time.perf_counter() - t_bm25, 3)
-            t_ctags = time.perf_counter()
-            ctags_score_hits = self._ctags_rank_candidate_hits(
-                snippets,
-                query=query,
-                limit=len(snippets),
-            )
+            if retrieval_enabled["symbolic"]:
+                t_ctags = time.perf_counter()
+                ctags_score_hits = self._ctags_rank_candidate_hits(
+                    snippets,
+                    query=query,
+                    limit=len(snippets),
+                )
+                timings["ctags_sec"] = round(time.perf_counter() - t_ctags, 3)
+            else:
+                ctags_score_hits = []
+                timings["ctags_sec"] = 0.0
             ctags_hits = ctags_score_hits[:topn_each]
-            timings["ctags_sec"] = round(time.perf_counter() - t_ctags, 3)
-            t_graph = time.perf_counter()
-            graph_score_hits = self._graph_rank_candidate_hits(
-                snippets,
-                query=query,
-                limit=len(snippets),
-            )
+            if retrieval_enabled["graph"]:
+                t_graph = time.perf_counter()
+                graph_score_hits = self._graph_rank_candidate_hits(
+                    snippets,
+                    query=query,
+                    limit=len(snippets),
+                )
+                timings["graph_sec"] = round(time.perf_counter() - t_graph, 3)
+            else:
+                graph_score_hits = []
+                timings["graph_sec"] = 0.0
             graph_hits = graph_score_hits[:topn_each]
-            timings["graph_sec"] = round(time.perf_counter() - t_graph, 3)
             t_fuse = time.perf_counter()
             fused_hits = self._fuse_code_hits(
                 embedding_hits=embed_hits,
@@ -4353,9 +4400,10 @@ class MemoryService:
                         break
                 fused_hits.extend(route_fillers)
             logger.info(
-                "code_semantic_search hybrid path: query=%r candidates=%d embed=%d bm25=%d ctags=%d graph=%d fused=%d timings=%s",
+                "code_semantic_search hybrid path: query=%r candidates=%d enabled=%s embed=%d bm25=%d ctags=%d graph=%d fused=%d timings=%s",
                 query,
                 len(candidate_paths),
+                retrieval_enabled,
                 len(embed_hits),
                 len(bm25_hits),
                 len(ctags_hits),
@@ -4380,11 +4428,36 @@ class MemoryService:
                         **bootstrap,
                         "fallback": "hybrid_direct",
                         "hybrid_counts": {
+                            "semantic": len(embed_hits),
+                            "frequency": len(bm25_hits),
+                            "symbolic": len(ctags_hits),
                             "embedding": len(embed_hits),
                             "bm25": len(bm25_hits),
                             "ctags": len(ctags_hits),
                             "graph": len(graph_hits),
                             "union_candidates": len(union_uris),
+                        },
+                    },
+                }
+            if not any(retrieval_enabled.values()):
+                return {
+                    "ok": True,
+                    "request_id": f"hybrid-{uuid4()}",
+                    "query": query,
+                    "hits": [],
+                    "hit_count": 0,
+                    "bootstrap": {
+                        **bootstrap,
+                        "fallback": "hybrid_direct",
+                        "hybrid_counts": {
+                            "semantic": 0,
+                            "frequency": 0,
+                            "symbolic": 0,
+                            "embedding": 0,
+                            "bm25": 0,
+                            "ctags": 0,
+                            "graph": 0,
+                            "union_candidates": 0,
                         },
                     },
                 }
