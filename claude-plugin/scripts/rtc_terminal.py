@@ -275,6 +275,13 @@ def runtime_dir(args: argparse.Namespace | None = None) -> Path:
     return Path.home() / ".cache" / "retrieval-token-cutter-claude-plugin"
 
 
+def env_truthy(name: str, default: bool = True) -> bool:
+    raw = os.environ.get(name)
+    if raw is None or raw.strip() == "":
+        return default
+    return raw.strip().lower() not in {"0", "false", "no", "off"}
+
+
 def pid_alive(pid: int) -> bool:
     try:
         os.kill(pid, 0)
@@ -340,6 +347,7 @@ def build_runtime_tree(repo_root: Path, run: Path) -> Path:
     if runtime.exists():
         shutil.rmtree(runtime)
     run_resolved = run.resolve()
+    copy_agfs_runtime = env_truthy("RTC_SWE_COPY_AGFS_RUNTIME", True)
 
     def ignore(dir_name: str, names: list[str]) -> set[str]:
         ignored = {"__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache"}
@@ -347,6 +355,8 @@ def build_runtime_tree(repo_root: Path, run: Path) -> Path:
         ignored.update({".cache", "output_logs", "include", "repo"})
         if current == repo_root.resolve():
             ignored.update({".git", ".venv", runtime.name})
+            if not copy_agfs_runtime:
+                ignored.add("agfs")
         if current == run_resolved:
             ignored.update(names)
         if current == (repo_root / "scripts" / "SWE" / "claude").resolve():

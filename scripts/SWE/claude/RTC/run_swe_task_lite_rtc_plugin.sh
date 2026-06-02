@@ -101,7 +101,7 @@ ensure_python_runtime
 _swe_prompt_exports="$(
   REPO_BASE="$REPO_BASE" \
   SWE_PROMPT_KIND="basic" \
-  "$PY_BIN" "$SCRIPT_DIR/../../resolve_swe_lite_instance.py"
+  "$PY_BIN" "$_SCRIPTS_MCP_DIR/../../resolve_swe_lite_instance.py"
 )" || {
   echo "[setup] Failed to resolve SWE-bench instance metadata for ${SWE_LITE_INSTANCE_ID:-<unset>}." >&2
   exit 1
@@ -274,6 +274,10 @@ export RTC_START_LOCAL_EMBED_SERVER="${RTC_START_LOCAL_EMBED_SERVER:-0}"
 export RTC_PLUGIN_AUTO_START="${RTC_PLUGIN_AUTO_START:-1}"
 export RTC_PLUGIN_AUTO_STOP="${RTC_PLUGIN_AUTO_STOP:-1}"
 export RTC_PLUGIN_START_WAIT="${RTC_PLUGIN_START_WAIT:-60}"
+export RTC_SWE_COPY_AGFS_RUNTIME="${RTC_SWE_COPY_AGFS_RUNTIME:-1}"
+if [ -z "${AGFS_BIN:-}" ] && [ -x "$RTC_DIR/agfs/build/agfs-server" ]; then
+  export AGFS_BIN="$RTC_DIR/agfs/build/agfs-server"
+fi
 export RTC_INJECT_CODE_POLICY_ON_SUBMIT="${RTC_INJECT_CODE_POLICY_ON_SUBMIT:-0}"
 export CLAUDE_CODE_DEBUG_LOGS_DIR="${CLAUDE_CODE_DEBUG_LOGS_DIR:-$LOGS_DIR}"
 export CLAUDE_CODE_DEBUG_LOG_LEVEL="${CLAUDE_CODE_DEBUG_LOG_LEVEL:-debug}"
