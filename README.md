@@ -21,14 +21,13 @@ search, filtered long outputs, and exact-replacement file edits.
 
 ## Usage Cost Reduction
 
-The SWE Lite verification reports include token, turn, and provider-cost
-breakdowns for Claude Code and OpenClaw runs. See
-[scripts/SWE/verification_cost_tokens_turns.md](scripts/SWE/verification_cost_tokens_turns.md)
-for the measurement table and pricing notes. We chose text-embedding-3-large as embedding model.
+The SWE Lite verification reports include token and turn breakdowns for Claude
+Code and OpenClaw runs. We chose `text-embedding-3-large` as the embedding
+model.
 
-![Average usage cost, Claude Code](docs/assets/readme/average_usage_cost_barchart.png)
-
-![Average usage cost, OpenClaw](docs/assets/readme/average_usage_cost_barchart_openclaw.png)
+| Claude Code | OpenClaw |
+| --- | --- |
+| ![Average usage cost, Claude Code](docs/assets/readme/average_usage_cost_barchart.png) | ![Average usage cost, OpenClaw](docs/assets/readme/average_usage_cost_barchart_openclaw.png) |
 
 ### Claude Average Per Task
 
