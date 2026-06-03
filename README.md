@@ -33,9 +33,8 @@ model.
 
 | Metric | Legacy | RTC | RTC Filter | RTC Reduction | RTC Filter Reduction |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| Base input tokens | 211 | 127 | 101 | -40% | <strong><font color="#26C889">-52%</font></strong> |
-| 1h cache-write tokens | 41,557 | 35,486 | 39,560 | <strong><font color="#26C889">-15%</font></strong> | -5% |
-| Cache read/hit tokens | 1,493,195 | 906,149 | 770,735 | -39% | <strong><font color="#26C889">-48%</font></strong> |
+| Input tokens (total) | 1,534,963 | 941,761 | 810,396 | -39% | <strong><font color="#26C889">-47%</font></strong> |
+| &nbsp;&nbsp;of which: cached/reused input tokens | 1,493,195 | 906,149 | 770,735 | -39% | <strong><font color="#26C889">-48%</font></strong> |
 | Output tokens | 16,969 | 11,656 | 11,946 | <strong><font color="#26C889">-31%</font></strong> | -30% |
 | Total tokens | 1,551,933 | 953,417 | 822,342 | -39% | <strong><font color="#26C889">-47%</font></strong> |
 
@@ -43,9 +42,8 @@ model.
 
 | Metric | Legacy | RTC | RTC Filter | RTC Reduction | RTC Filter Reduction |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| Cache-miss input tokens | 36,107 | 34,665 | 30,987 | -4% | <strong><font color="#26C889">-14%</font></strong> |
-| Cache-hit input tokens | 1,273,830 | 734,925 | 591,334 | -42% | <strong><font color="#26C889">-54%</font></strong> |
-| Reasoning tokens | 9,417 | 5,839 | 7,783 | <strong><font color="#26C889">-38%</font></strong> | -17% |
+| Input tokens (total) | 1,309,937 | 769,590 | 622,321 | -41% | <strong><font color="#26C889">-52%</font></strong> |
+| &nbsp;&nbsp;of which: cached/reused input tokens | 1,273,830 | 734,925 | 591,334 | -42% | <strong><font color="#26C889">-54%</font></strong> |
 | Output tokens | 17,439 | 10,399 | 12,982 | <strong><font color="#26C889">-40%</font></strong> | -26% |
 | Total tokens | 1,327,377 | 779,989 | 635,303 | -41% | <strong><font color="#26C889">-52%</font></strong> |
 
