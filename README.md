@@ -31,7 +31,7 @@ model.
 
 ### Claude Average Per Task
 
-| Metric | Legacy | RTC | RTC Filter | RTC Reduction | RTC Filter Reduction |
+| Metric | Legacy&nbsp;&nbsp;&nbsp;&nbsp; | RTC&nbsp;&nbsp;&nbsp;&nbsp; | RTC Filter&nbsp;&nbsp;&nbsp;&nbsp; | RTC Reduction | RTC Filter Reduction |
 | --- | ---: | ---: | ---: | ---: | ---: |
 | Input tokens<br><small>cached/reused input</small> | 1,534,963<br><div align="left"><small>1,493,195</small></div> | 941,761<br><div align="left"><small>906,149</small></div> | 810,396<br><div align="left"><small>770,735</small></div> | -39%<br><div align="left"><small>-39%</small></div> | <strong><font color="#26C889">-47%</font></strong><br><div align="left"><small><strong><font color="#26C889">-48%</font></strong></small></div> |
 | Output tokens | 16,969 | 11,656 | 11,946 | <strong><font color="#26C889">-31%</font></strong> | -30% |
@@ -39,7 +39,7 @@ model.
 
 ### OpenClaw Average Per Task
 
-| Metric | Legacy | RTC | RTC Filter | RTC Reduction | RTC Filter Reduction |
+| Metric | Legacy&nbsp;&nbsp;&nbsp;&nbsp; | RTC&nbsp;&nbsp;&nbsp;&nbsp; | RTC Filter&nbsp;&nbsp;&nbsp;&nbsp; | RTC Reduction | RTC Filter Reduction |
 | --- | ---: | ---: | ---: | ---: | ---: |
 | Input tokens<br><small>cached/reused input</small> | 1,309,937<br><div align="left"><small>1,273,830</small></div> | 769,590<br><div align="left"><small>734,925</small></div> | 622,321<br><div align="left"><small>591,334</small></div> | -41%<br><div align="left"><small>-42%</small></div> | <strong><font color="#26C889">-52%</font></strong><br><div align="left"><small><strong><font color="#26C889">-54%</font></strong></small></div> |
 | Output tokens | 17,439 | 10,399 | 12,982 | <strong><font color="#26C889">-40%</font></strong> | -26% |
