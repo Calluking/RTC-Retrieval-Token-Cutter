@@ -32,7 +32,7 @@ SWE Lite 验证报告包含 Claude Code 和 OpenClaw 运行的 token 与轮次�
 | 指标 | 原版 | RTC | RTC Filter | RTC 降低 | RTC Filter 降低 |
 | --- | ---: | ---: | ---: | ---: | ---: |
 | Input tokens（总量） | 1,534,963 | 941,761 | 810,396 | -39% | <strong><font color="#26C889">-47%</font></strong> |
-| &nbsp;&nbsp;其中：缓存/复用 input tokens | 1,493,195 | 906,149 | 770,735 | -39% | <strong><font color="#26C889">-48%</font></strong> |
+| &nbsp;&nbsp;<small>其中：缓存/复用 input tokens</small> | <small>1,493,195</small> | <small>906,149</small> | <small>770,735</small> | <small>-39%</small> | <small><strong><font color="#26C889">-48%</font></strong></small> |
 | Output tokens | 16,969 | 11,656 | 11,946 | <strong><font color="#26C889">-31%</font></strong> | -30% |
 | Total tokens | 1,551,933 | 953,417 | 822,342 | -39% | <strong><font color="#26C889">-47%</font></strong> |
 
@@ -41,7 +41,7 @@ SWE Lite 验证报告包含 Claude Code 和 OpenClaw 运行的 token 与轮次�
 | 指标 | 原版 | RTC | RTC Filter | RTC 降低 | RTC Filter 降低 |
 | --- | ---: | ---: | ---: | ---: | ---: |
 | Input tokens（总量） | 1,309,937 | 769,590 | 622,321 | -41% | <strong><font color="#26C889">-52%</font></strong> |
-| &nbsp;&nbsp;其中：缓存/复用 input tokens | 1,273,830 | 734,925 | 591,334 | -42% | <strong><font color="#26C889">-54%</font></strong> |
+| &nbsp;&nbsp;<small>其中：缓存/复用 input tokens</small> | <small>1,273,830</small> | <small>734,925</small> | <small>591,334</small> | <small>-42%</small> | <small><strong><font color="#26C889">-54%</font></strong></small> |
 | Output tokens | 17,439 | 10,399 | 12,982 | <strong><font color="#26C889">-40%</font></strong> | -26% |
 | Total tokens | 1,327,377 | 779,989 | 635,303 | -41% | <strong><font color="#26C889">-52%</font></strong> |
 
