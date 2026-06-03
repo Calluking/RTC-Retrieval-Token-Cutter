@@ -22,7 +22,8 @@
 
 SWE Lite 验证报告包含 Claude Code 和 OpenClaw 运行的 token、轮次和 provider
 成本明细。计量表和价格说明见
-[scripts/SWE/verification_cost_tokens_turns_CN.md](scripts/SWE/verification_cost_tokens_turns_CN.md)。
+[scripts/SWE/verification_cost_tokens_turns_CN.md](scripts/SWE/verification_cost_tokens_turns_CN.md)。本次计量选择
+`text-embedding-3-large` 作为 embedding 模型。
 
 | Claude Code | OpenClaw |
 | --- | --- |

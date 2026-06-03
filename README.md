@@ -24,7 +24,7 @@ search, filtered long outputs, and exact-replacement file edits.
 The SWE Lite verification reports include token, turn, and provider-cost
 breakdowns for Claude Code and OpenClaw runs. See
 [scripts/SWE/verification_cost_tokens_turns.md](scripts/SWE/verification_cost_tokens_turns.md)
-for the measurement table and pricing notes.
+for the measurement table and pricing notes. We chose text-embedding-3-large as embedding model.
 
 | Claude Code | OpenClaw |
 | --- | --- |
