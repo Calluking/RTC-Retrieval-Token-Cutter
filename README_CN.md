@@ -18,6 +18,36 @@
 
 [English README](README.md)
 
+## 使用成本降低（REDUCTION）
+
+SWE Lite 验证报告包含 Claude Code 和 OpenClaw 运行的 token、轮次和 provider
+成本明细。计量表和价格说明见
+[scripts/SWE/verification_cost_tokens_turns_CN.md](scripts/SWE/verification_cost_tokens_turns_CN.md)。
+
+| Claude Code | OpenClaw |
+| --- | --- |
+| ![平均使用成本，Claude Code](docs/assets/readme/average_usage_cost_barchart.png) | ![平均使用成本，OpenClaw](docs/assets/readme/average_usage_cost_barchart_openclaw.png) |
+
+### Claude 单任务平均值
+
+| 指标 | Legacy | RTC | RTC Filter | RTC 降低 | RTC Filter 降低 |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Base input tokens | 211 | 127 | 101 | -40% | **-52%** |
+| 1h cache-write tokens | 41,557 | 35,486 | 39,560 | **-15%** | -5% |
+| Cache read/hit tokens | 1,493,195 | 906,149 | 770,735 | -39% | **-48%** |
+| Output tokens | 16,969 | 11,656 | 11,946 | **-31%** | -30% |
+| Total tokens | 1,551,933 | 953,417 | 822,342 | -39% | **-47%** |
+
+### OpenClaw 单任务平均值
+
+| 指标 | Legacy | RTC | RTC Filter | RTC 降低 | RTC Filter 降低 |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Cache-miss input tokens | 36,107 | 34,665 | 30,987 | -4% | **-14%** |
+| Cache-hit input tokens | 1,273,830 | 734,925 | 591,334 | -42% | **-54%** |
+| Reasoning tokens | 9,417 | 5,839 | 7,783 | **-38%** | -17% |
+| Output tokens | 17,439 | 10,399 | 12,982 | **-40%** | -26% |
+| Total tokens | 1,327,377 | 779,989 | 635,303 | -41% | **-52%** |
+
 ## 概览
 
 Retrieval Token Cutter 提供两个本地插件：

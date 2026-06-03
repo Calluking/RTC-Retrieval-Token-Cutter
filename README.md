@@ -19,6 +19,37 @@ search, filtered long outputs, and exact-replacement file edits.
 
 [中文文档](README_CN.md)
 
+## Usage Cost Reduction
+
+The SWE Lite verification reports include token, turn, and provider-cost
+breakdowns for Claude Code and OpenClaw runs. See
+[scripts/SWE/verification_cost_tokens_turns.md](scripts/SWE/verification_cost_tokens_turns.md)
+for the measurement table and pricing notes.
+
+| Claude Code | OpenClaw |
+| --- | --- |
+| ![Average usage cost, Claude Code](docs/assets/readme/average_usage_cost_barchart.png) | ![Average usage cost, OpenClaw](docs/assets/readme/average_usage_cost_barchart_openclaw.png) |
+
+### Claude Average Per Task
+
+| Metric | Legacy | RTC | RTC Filter | RTC Reduction | RTC Filter Reduction |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Base input tokens | 211 | 127 | 101 | -40% | **-52%** |
+| 1h cache-write tokens | 41,557 | 35,486 | 39,560 | **-15%** | -5% |
+| Cache read/hit tokens | 1,493,195 | 906,149 | 770,735 | -39% | **-48%** |
+| Output tokens | 16,969 | 11,656 | 11,946 | **-31%** | -30% |
+| Total tokens | 1,551,933 | 953,417 | 822,342 | -39% | **-47%** |
+
+### OpenClaw Average Per Task
+
+| Metric | Legacy | RTC | RTC Filter | RTC Reduction | RTC Filter Reduction |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Cache-miss input tokens | 36,107 | 34,665 | 30,987 | -4% | **-14%** |
+| Cache-hit input tokens | 1,273,830 | 734,925 | 591,334 | -42% | **-54%** |
+| Reasoning tokens | 9,417 | 5,839 | 7,783 | **-38%** | -17% |
+| Output tokens | 17,439 | 10,399 | 12,982 | **-40%** | -26% |
+| Total tokens | 1,327,377 | 779,989 | 635,303 | -41% | **-52%** |
+
 ## Overview
 
 Retrieval Token Cutter ships two local plugins:
