@@ -35,6 +35,7 @@ model.
 | --- | ---: | ---: | ---: | ---: | ---: |
 | Input tokens | 1,534,963 | 941,761 | 810,396 | -39% | <strong><font color="#26C889">-47%</font></strong> |
 | Output tokens | 16,969 | 11,656 | 11,946 | <strong><font color="#26C889">-31%</font></strong> | -30% |
+| Total tokens | 1,551,933 | 953,417 | 822,342 | -39% | <strong><font color="#26C889">-47%</font></strong> |
 
 ### OpenClaw Average Per Task
 
@@ -42,6 +43,7 @@ model.
 | --- | ---: | ---: | ---: | ---: | ---: |
 | Input tokens | 1,309,937 | 769,590 | 622,321 | -41% | <strong><font color="#26C889">-52%</font></strong> |
 | Output tokens | 17,439 | 10,399 | 12,982 | <strong><font color="#26C889">-40%</font></strong> | -26% |
+| Total tokens | 1,327,377 | 779,989 | 635,303 | -41% | <strong><font color="#26C889">-52%</font></strong> |
 
 ## Overview
 
