@@ -350,8 +350,14 @@ class MemoryWriteAPI:
             sym = str(chunk.symbol or "").strip()
             abstract_l0 = self._code_memory_l0(chunk)
             graph_metadata = {}
+            heading_path: list[str] = []
+            markdown_metadata = {}
             if getattr(chunk, "metadata", None):
                 graph_metadata = dict(chunk.metadata.get("graph") or {})
+                markdown_metadata = dict(chunk.metadata.get("markdown") or {})
+                raw_heading_path = chunk.metadata.get("heading_path") or markdown_metadata.get("heading_path") or []
+                if isinstance(raw_heading_path, list):
+                    heading_path = [str(item) for item in raw_heading_path if str(item).strip()]
             agfs_uri = chunk_uris.get(id(chunk)) or self._code_memory_uri(chunk=chunk, ctx=ctx)
             agfs_directory = self._agfs_directory_for_uri(agfs_uri)
             overview_l1 = self._code_memory_l1(
@@ -379,6 +385,7 @@ class MemoryWriteAPI:
                     f"path:{rel_display}",
                     f"symbol:{chunk.symbol}",
                     f"kind:{chunk.symbol_kind or 'code'}",
+                    f"heading_path:{' / '.join(heading_path)}" if heading_path else "",
                     f"signature:{chunk.signature or ''}",
                     str(chunk.content or ""),
                 ] if part
@@ -393,6 +400,8 @@ class MemoryWriteAPI:
                 "chunk_hash": chunk.chunk_hash,
                 "project_id": project_id,
                 "signature": chunk.signature,
+                "heading_path": heading_path,
+                "markdown": markdown_metadata,
                 "agfs_uri": agfs_uri,
                 "agfs_directory": agfs_directory,
                 # L1 lexical/structural sidecar fields for hybrid retrieval.

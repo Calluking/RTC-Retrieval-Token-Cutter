@@ -116,6 +116,16 @@ def _l1_code_index_metadata(node: ContextNode) -> dict[str, Any]:
     if bm25_document:
         # Keep metadata compact while preserving lexical hints.
         out["l1_bm25_document"] = bm25_document[:2000]
+    heading_path = md.get("heading_path")
+    if isinstance(heading_path, list) and heading_path:
+        out["l1_heading_path"] = " / ".join(str(v) for v in heading_path if str(v).strip())[:2000]
+    markdown = md.get("markdown")
+    if isinstance(markdown, dict):
+        title = str(markdown.get("title") or "").strip()
+        if title:
+            out["l1_markdown_title"] = title[:500]
+        if bool(markdown.get("oversize")):
+            out["l1_markdown_oversize"] = True
     graph = md.get("graph")
     if isinstance(graph, dict):
         symbol = str(graph.get("symbol") or md.get("symbol") or "").strip()

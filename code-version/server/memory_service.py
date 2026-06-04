@@ -64,7 +64,7 @@ _CODE_SELECTION_MAX_FILES = 200
 _CODE_SELECTION_MAX_PATHS = int(os.environ.get("RTC_COMPOSE_MAX_CODE_PATHS", "100"))
 _CODE_EXTENSIONS = {
     ".py", ".ts", ".tsx", ".js", ".jsx", ".go", ".rs", ".java",
-    ".c", ".cc", ".cpp", ".cxx", ".h", ".hpp",
+    ".c", ".cc", ".cpp", ".cxx", ".h", ".hpp", ".md", ".markdown",
 }
 _IGNORED_CODE_DIRS = {
     ".git", ".hg", ".svn", "__pycache__", ".pytest_cache", ".mypy_cache",
@@ -105,6 +105,16 @@ def _code_retrieval_enabled(route: str) -> bool:
     if not env_name:
         return True
     return _env_bool(env_name, True)
+
+
+def _hit_content_excerpt(snippet: dict, *, default_limit: int = 4000) -> str:
+    """Return exact snippet text for Markdown docs, capped text for code."""
+    excerpt = str(snippet.get("excerpt") or "")
+    language = str(snippet.get("language") or "").lower()
+    kind = str(snippet.get("symbol_kind") or "").lower()
+    if language == "markdown" or kind.startswith("markdown_"):
+        return excerpt
+    return excerpt[:default_limit]
 
 
 def _bootstrap_max_files() -> int:
@@ -1408,7 +1418,7 @@ class MemoryService:
                     "category": "code",
                     "abstract": abstract,
                     "overview": overview,
-                    "content_excerpt": str(meta["excerpt"])[:4000],
+                    "content_excerpt": _hit_content_excerpt(meta),
                     "symbol": symbol,
                     "symbol_kind": kind,
                     "start_line": start_line,
@@ -1546,6 +1556,17 @@ class MemoryService:
                     graph_metadata = dict((getattr(chunk, "metadata", None) or {}).get("graph") or {})
                 except Exception:
                     graph_metadata = {}
+                markdown_metadata = {}
+                heading_path: list[str] = []
+                try:
+                    raw_metadata = getattr(chunk, "metadata", None) or {}
+                    markdown_metadata = dict(raw_metadata.get("markdown") or {})
+                    hp = raw_metadata.get("heading_path") or markdown_metadata.get("heading_path") or []
+                    if isinstance(hp, list):
+                        heading_path = [str(item) for item in hp if str(item).strip()]
+                except Exception:
+                    markdown_metadata = {}
+                    heading_path = []
                 agfs_uri = self._code_memory_uri_for_chunk(chunk, ctx) if ctx is not None else ""
                 agfs_directory = self._agfs_directory_for_uri(agfs_uri)
                 graph_doc = self._format_graph_l1_doc(
@@ -1568,6 +1589,8 @@ class MemoryService:
                     f"symbol: {chunk.symbol}",
                     f"kind: {symbol_kind}",
                 ]
+                if heading_path:
+                    doc_parts.append(f"heading_path: {' / '.join(heading_path)}")
                 if chunk.signature:
                     doc_parts.append(f"signature: {chunk.signature}")
                 if graph_doc:
@@ -1579,11 +1602,14 @@ class MemoryService:
                         "agfs_uri": agfs_uri,
                         "file_path": str(full_path),
                         "rel": rel,
+                        "language": chunk.language,
                         "symbol": chunk.symbol,
                         "symbol_kind": symbol_kind,
                         "start_line": chunk.start_line,
                         "end_line": chunk.end_line,
                         "signature": chunk.signature,
+                        "heading_path": heading_path,
+                        "markdown": markdown_metadata,
                         "excerpt": excerpt,
                         "graph": graph_metadata,
                         "graph_doc": graph_doc,
@@ -1593,6 +1619,7 @@ class MemoryService:
                                 f"path {rel_display}",
                                 f"symbol {chunk.symbol}",
                                 f"kind {symbol_kind}",
+                                f"heading_path {' '.join(heading_path)}",
                                 f"signature {chunk.signature or ''}",
                                 graph_doc,
                                 snippet,
@@ -1620,6 +1647,7 @@ class MemoryService:
                     f"path: {snippet.get('rel') or ''}",
                     f"symbol: {snippet.get('symbol') or ''}",
                     f"kind: {snippet.get('symbol_kind') or 'code'}",
+                    f"heading_path: {' / '.join(snippet.get('heading_path') or [])}" if snippet.get("heading_path") else "",
                     f"signature: {snippet.get('signature') or ''}" if snippet.get("signature") else "",
                     "",
                     graph_doc,
@@ -1632,6 +1660,7 @@ class MemoryService:
                     f"path {snippet.get('rel') or ''}",
                     f"symbol {snippet.get('symbol') or ''}",
                     f"kind {snippet.get('symbol_kind') or 'code'}",
+                    f"heading_path {' '.join(snippet.get('heading_path') or [])}",
                     f"signature {snippet.get('signature') or ''}",
                     graph_doc,
                     str(snippet.get("excerpt") or ""),
@@ -1856,6 +1885,7 @@ class MemoryService:
         fields = [
             ("symbol", 4.5, 0.05, lambda s: str(s.get("symbol") or "")),
             ("signature", 2.6, 0.20, lambda s: str(s.get("signature") or "")),
+            ("heading_path", 2.8, 0.20, lambda s: " ".join(str(v) for v in (s.get("heading_path") or []))),
             ("path", 1.2, 0.20, lambda s: str(s.get("rel") or "")),
             ("body", 0.45, 0.65, lambda s: str(s.get("excerpt") or "")),
         ]
@@ -1921,7 +1951,7 @@ class MemoryService:
                     "category": "code",
                     "abstract": abstract,
                     "overview": overview,
-                    "content_excerpt": str(meta["excerpt"])[:4000],
+                    "content_excerpt": _hit_content_excerpt(meta),
                     "symbol": symbol,
                     "symbol_kind": kind,
                     "start_line": start_line,
@@ -1948,6 +1978,9 @@ class MemoryService:
             "async_function": {"async", "function", "def", "method"},
             "type": {"class", "type", "struct", "interface", "enum"},
             "code": {"code", "snippet"},
+            "markdown_api_entry": {"markdown", "docs", "doc", "api", "entry", "function", "class", "struct", "enum"},
+            "markdown_api_entry_oversize": {"markdown", "docs", "doc", "api", "entry", "function", "class", "struct", "enum"},
+            "markdown_text": {"markdown", "docs", "doc", "section", "guide"},
         }
         scored: list[tuple[float, dict]] = []
         for snippet in snippets:
@@ -1955,6 +1988,7 @@ class MemoryService:
             symbol_l = symbol.lower()
             rel_l = str(snippet.get("rel") or "").lower()
             sig_l = str(snippet.get("signature") or "").lower()
+            heading_l = " ".join(str(v) for v in (snippet.get("heading_path") or [])).lower()
             kind = str(snippet.get("symbol_kind") or "code")
             score = 0.0
             for term in query_terms:
@@ -1964,6 +1998,8 @@ class MemoryService:
                     score += 1.5
                 if term in sig_l:
                     score += 1.0
+                if term in heading_l:
+                    score += 1.2
                 if term in rel_l:
                     score += 0.6
             query_vocab = set(query_terms)
@@ -1992,7 +2028,7 @@ class MemoryService:
                     "category": "code",
                     "abstract": abstract,
                     "overview": overview,
-                    "content_excerpt": str(meta["excerpt"])[:4000],
+                    "content_excerpt": _hit_content_excerpt(meta),
                     "symbol": symbol,
                     "symbol_kind": kind,
                     "start_line": start_line,
@@ -2092,6 +2128,7 @@ class MemoryService:
             symbol = norm(snippet.get("symbol"))
             rel = norm(snippet.get("rel"))
             signature = norm(snippet.get("signature"))
+            heading_path = norm(" ".join(str(v) for v in (snippet.get("heading_path") or [])))
             graph = snippet.get("graph") if isinstance(snippet.get("graph"), dict) else {}
             relation_text = " ".join(
                 " ".join(str(v) for v in graph.get(key, []) if str(v).strip())
@@ -2105,6 +2142,7 @@ class MemoryService:
                 score += 6.0
             score += match_count(symbol) * 2.5
             score += match_count(signature) * 1.8
+            score += match_count(heading_path) * 1.6
             score += match_count(rel) * 1.4
             anchor_score = score
             score += match_count(relation_text) * 1.6
@@ -2130,6 +2168,7 @@ class MemoryService:
                         str(snippet.get("rel") or ""),
                         str(snippet.get("symbol") or ""),
                         str(snippet.get("signature") or ""),
+                        " ".join(str(v) for v in (snippet.get("heading_path") or [])),
                         str(snippet.get("excerpt") or ""),
                     ]
                 ).lower()
@@ -2220,7 +2259,7 @@ class MemoryService:
                 "category": "code",
                 "abstract": f"{symbol} {kind} in {rel} ({range_text})".strip(),
                 "overview": graph_doc,
-                "content_excerpt": str(snippet["excerpt"])[:4000],
+                "content_excerpt": _hit_content_excerpt(snippet),
                 "symbol": symbol,
                 "symbol_kind": kind,
                 "start_line": start_line,
