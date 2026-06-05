@@ -943,24 +943,24 @@ class MemoryService:
         already: set[str] = set()
         candidates: list[str] = []
 
-        from_glob = self._glob_candidate_paths(
-            workspace_root,
-            patterns=glob_patterns,
-            already=already,
-            limit=limit,
-        )
-        candidates.extend(from_glob)
-        already.update(from_glob)
-
         effective_grep_terms = grep_terms or _extract_code_query_terms(query)
         from_grep = self._grep_candidate_paths(
             workspace_root,
             grep_terms=effective_grep_terms,
             already=already,
-            limit=max(0, limit - len(candidates)),
+            limit=limit,
         )
         candidates.extend(from_grep)
         already.update(from_grep)
+
+        from_glob = self._glob_candidate_paths(
+            workspace_root,
+            patterns=glob_patterns,
+            already=already,
+            limit=max(0, limit - len(candidates)),
+        )
+        candidates.extend(from_glob)
+        already.update(from_glob)
 
         if not candidates:
             fallback = self._rg_query_candidate_paths(
