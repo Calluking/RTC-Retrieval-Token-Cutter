@@ -207,8 +207,18 @@ def _chunk_markdown_api_entries(
     chunks: list[CodeChunk] = []
     covered: list[tuple[int, int]] = []
 
+    normalized_entries: list[tuple[int, int, str]] = []
     for start_idx, end_idx, title in entries:
         start_idx, end_idx = _extend_over_markdown_atomic_blocks(start_idx, end_idx, atomic_regions)
+        normalized_entries.append((start_idx, end_idx, title))
+
+    # Markdown headings are hierarchical, so a top-level API-looking heading can
+    # contain more specific child API entries. Keep the child entries and let the
+    # non-entry gap logic preserve any surrounding overview text; otherwise the
+    # index gets overlapping parent + child chunks for the same lines.
+    entries = _remove_markdown_container_entries(normalized_entries)
+
+    for start_idx, end_idx, title in entries:
         chunk = _markdown_chunk_from_range(
             lines,
             file_path,
@@ -219,7 +229,22 @@ def _chunk_markdown_api_entries(
             target_chars=target_chars,
         )
         if chunk:
-            chunks.append(chunk)
+            if len(chunk.content) > max(target_chars * 4, 10000):
+                chunks.extend(
+                    _chunk_markdown_gap(
+                        lines,
+                        file_path,
+                        start_idx,
+                        end_idx,
+                        heading_paths=heading_paths,
+                        target_chars=target_chars,
+                        atomic_regions=atomic_regions,
+                        title_override=title,
+                        symbol_kind="markdown_api_entry_part",
+                    )
+                )
+            else:
+                chunks.append(chunk)
             covered.append((start_idx, end_idx))
 
     # Keep non-API Markdown discoverable with ordinary windows, without cutting
@@ -235,6 +260,7 @@ def _chunk_markdown_api_entries(
                     start_idx,
                     heading_paths=heading_paths,
                     target_chars=target_chars,
+                    atomic_regions=atomic_regions,
                 )
             )
         cursor = max(cursor, end_idx)
@@ -247,11 +273,28 @@ def _chunk_markdown_api_entries(
                 len(lines),
                 heading_paths=heading_paths,
                 target_chars=target_chars,
+                atomic_regions=atomic_regions,
             )
         )
 
     chunks.sort(key=lambda item: (item.start_line, item.end_line, item.symbol))
     return chunks
+
+
+def _remove_markdown_container_entries(entries: list[tuple[int, int, str]]) -> list[tuple[int, int, str]]:
+    """Drop API entries that strictly contain smaller API entries."""
+    filtered: list[tuple[int, int, str]] = []
+    for index, (start_idx, end_idx, title) in enumerate(entries):
+        contains_child = False
+        for other_index, (other_start, other_end, _other_title) in enumerate(entries):
+            if index == other_index:
+                continue
+            if start_idx <= other_start and other_end <= end_idx and (start_idx, end_idx) != (other_start, other_end):
+                contains_child = True
+                break
+        if not contains_child:
+            filtered.append((start_idx, end_idx, title))
+    return filtered
 
 
 def _clean_markdown_heading(text: str) -> str:
@@ -265,7 +308,9 @@ def _markdown_heading_paths(lines: list[str]) -> list[list[str]]:
     out: list[list[str]] = []
     in_fence = False
     for line in lines:
-        if _MD_FENCE_RE.match(line):
+        if in_fence and _markdown_heading_breaks_fence(line):
+            in_fence = False
+        elif _MD_FENCE_RE.match(line):
             in_fence = not in_fence
         if not in_fence:
             match = _MD_HEADING_RE.match(line)
@@ -281,7 +326,9 @@ def _markdown_heading_ranges(lines: list[str]) -> list[tuple[int, int, str, int]
     headings: list[tuple[int, int, str]] = []
     in_fence = False
     for idx, line in enumerate(lines):
-        if _MD_FENCE_RE.match(line):
+        if in_fence and _markdown_heading_breaks_fence(line):
+            in_fence = False
+        elif _MD_FENCE_RE.match(line):
             in_fence = not in_fence
         if in_fence:
             continue
@@ -309,17 +356,34 @@ def _detect_markdown_api_entries(lines: list[str]) -> list[tuple[int, int, str]]
         api_title = bool(_MD_API_HEADING_RE.search(title))
         if not api_title and _MD_API_PART_TITLE_RE.match(title):
             continue
-        if not (api_title or _MD_SIGNATURE_RE.search(sample) or _MD_API_LABEL_RE.search(sample)):
+        has_signature = any(_markdown_line_has_signature(line) for line in sample.splitlines())
+        if not (api_title or has_signature or _MD_API_LABEL_RE.search(sample)):
             continue
         if end_idx - start_idx >= 4:
             entries.append((start_idx, end_idx, title))
     return entries
 
 
+def _markdown_line_has_signature(line: str) -> bool:
+    stripped = line.strip()
+    if not stripped:
+        return False
+    # TOC/navigation pages often contain list links such as
+    # "- [@Builder Macro: ...](...)" or "- [Interface ...](...)". Those words
+    # are API-ish labels, but the line is only a link target, not an API entry.
+    if re.match(r"^[-*+]\s+", stripped) and ("](" in stripped or "<!--" in stripped):
+        return False
+    return bool(_MD_SIGNATURE_RE.search(stripped))
+
+
 def _markdown_fenced_regions(lines: list[str]) -> list[tuple[int, int]]:
     regions: list[tuple[int, int]] = []
     start_idx: int | None = None
     for idx, line in enumerate(lines):
+        if start_idx is not None and _markdown_heading_breaks_fence(line):
+            regions.append((start_idx, idx))
+            start_idx = None
+            continue
         if not _MD_FENCE_RE.match(line):
             continue
         if start_idx is None:
@@ -330,6 +394,10 @@ def _markdown_fenced_regions(lines: list[str]) -> list[tuple[int, int]]:
     if start_idx is not None:
         regions.append((start_idx, len(lines)))
     return regions
+
+
+def _markdown_heading_breaks_fence(line: str) -> bool:
+    return bool(_MD_HEADING_RE.match(line))
 
 
 def _markdown_is_table_line(line: str) -> bool:
@@ -427,10 +495,14 @@ def _chunk_markdown_gap(
     *,
     heading_paths: list[list[str]],
     target_chars: int,
+    atomic_regions: list[tuple[int, int]] | None = None,
+    title_override: str | None = None,
+    symbol_kind: str = "markdown_text",
 ) -> list[CodeChunk]:
     chunks: list[CodeChunk] = []
     cursor = start_idx
     chunk_index = 1
+    atomic_regions = atomic_regions or []
     while cursor < end_idx:
         window_start = cursor
         chars = 0
@@ -440,21 +512,29 @@ def _chunk_markdown_gap(
                 break
             chars += line_len
             cursor += 1
+        cursor = _markdown_extend_cursor_over_atomic(
+            lines,
+            window_start,
+            cursor,
+            end_idx,
+            atomic_regions,
+            max_atomic_chars=max(target_chars * 2, 5000),
+        )
         content = "\n".join(lines[window_start:cursor]).strip()
         if content:
             heading_path = heading_paths[min(window_start, len(heading_paths) - 1)] if heading_paths else []
-            title = heading_path[-1] if heading_path else f"markdown_{chunk_index}"
+            title = title_override or (heading_path[-1] if heading_path else f"markdown_{chunk_index}")
             chunks.append(
                 CodeChunk(
                     language="markdown",
                     file_path=file_path,
-                    symbol=title,
+                    symbol=title if chunk_index == 1 else f"{title} part {chunk_index}",
                     start_line=window_start + 1,
                     end_line=cursor,
                     content=content,
                     chunk_hash=_hash_text(content),
                     signature=" / ".join(heading_path),
-                    symbol_kind="markdown_text",
+                    symbol_kind=symbol_kind,
                     metadata={
                         "heading_path": heading_path,
                         "markdown": {"heading_path": heading_path, "title": title, "oversize": False},
@@ -473,6 +553,28 @@ def _chunk_markdown_gap(
         if cursor >= end_idx:
             break
     return chunks
+
+
+def _markdown_extend_cursor_over_atomic(
+    lines: list[str],
+    window_start: int,
+    cursor: int,
+    end_idx: int,
+    atomic_regions: list[tuple[int, int]],
+    *,
+    max_atomic_chars: int,
+) -> int:
+    changed = True
+    while changed:
+        changed = False
+        for region_start, region_end in atomic_regions:
+            if region_start < cursor < region_end and region_start >= window_start:
+                region_chars = sum(len(line) + 1 for line in lines[region_start:region_end])
+                if region_chars > max_atomic_chars:
+                    continue
+                cursor = min(region_end, end_idx)
+                changed = True
+    return cursor
 
 
 def _build_python_signature(node: ast.AST) -> str:

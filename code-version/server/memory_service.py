@@ -64,7 +64,7 @@ _CODE_SELECTION_MAX_FILES = 200
 _CODE_SELECTION_MAX_PATHS = int(os.environ.get("RTC_COMPOSE_MAX_CODE_PATHS", "100"))
 _CODE_EXTENSIONS = {
     ".py", ".ts", ".tsx", ".js", ".jsx", ".go", ".rs", ".java",
-    ".c", ".cc", ".cpp", ".cxx", ".h", ".hpp", ".md", ".markdown",
+    ".c", ".cc", ".cpp", ".cxx", ".h", ".hpp", ".cj", ".md", ".markdown",
 }
 _IGNORED_CODE_DIRS = {
     ".git", ".hg", ".svn", "__pycache__", ".pytest_cache", ".mypy_cache",
@@ -786,7 +786,7 @@ class MemoryService:
         """List repo-relative code files under the workspace root."""
         found: list[str] = []
         try:
-            for current_root, dirnames, filenames in os.walk(workspace_root):
+            for current_root, dirnames, filenames in os.walk(workspace_root, followlinks=True):
                 dirnames[:] = sorted(
                     name for name in dirnames
                     if name not in _IGNORED_CODE_DIRS and not name.startswith(".cache")
@@ -821,6 +821,19 @@ class MemoryService:
             seen.add(token)
             out.append(token)
         return out
+
+    @staticmethod
+    def _workspace_relative_path(workspace_root: Path, raw_path: str | Path) -> str:
+        """Return a workspace-relative path without resolving symlinked dirs away.
+
+        Agent task workspaces often expose large shared doc trees as symlinks
+        such as `workspace/docs -> /shared/docs`. Using Path.resolve() before
+        relative_to() turns those files into paths outside the workspace and
+        silently drops them from RTC search candidates.
+        """
+        root_abs = Path(os.path.abspath(workspace_root))
+        path_abs = Path(os.path.abspath(raw_path))
+        return path_abs.relative_to(root_abs).as_posix()
 
     @staticmethod
     def _slugify_code_identity(value: str) -> str:
@@ -858,7 +871,7 @@ class MemoryService:
                 if len(found) >= limit:
                     break
                 try:
-                    rel = Path(raw_path).resolve().relative_to(workspace_root).as_posix()
+                    rel = self._workspace_relative_path(workspace_root, raw_path)
                 except Exception:
                     continue
                 if rel in already or rel in seen:
@@ -893,6 +906,7 @@ class MemoryService:
                 "rg",
                 "-l",
                 "-F",
+                "-L",
                 "-m",
                 "1",
                 "--hidden",
@@ -916,7 +930,7 @@ class MemoryService:
                 if term_count >= per_term_limit:
                     break
                 try:
-                    rel = Path(raw_path).resolve().relative_to(workspace_root).as_posix()
+                    rel = self._workspace_relative_path(workspace_root, raw_path)
                 except Exception:
                     continue
                 if rel in already or rel in seen:
@@ -943,6 +957,20 @@ class MemoryService:
         already: set[str] = set()
         candidates: list[str] = []
 
+        if glob_patterns:
+            from_glob = self._glob_candidate_paths(
+                workspace_root,
+                patterns=glob_patterns,
+                already=already,
+                limit=limit,
+            )
+            candidates.extend(from_glob)
+            already.update(from_glob)
+            # A glob hint is an explicit scope, not merely a ranking hint. Keep
+            # candidates inside that scope so searches for src/**/*.cj cannot
+            # be filled by matching documentation pages.
+            return candidates[: max(limit, min(limit * 4, 300))]
+
         effective_grep_terms = grep_terms or _extract_code_query_terms(query)
         from_grep = self._grep_candidate_paths(
             workspace_root,
@@ -952,15 +980,6 @@ class MemoryService:
         )
         candidates.extend(from_grep)
         already.update(from_grep)
-
-        from_glob = self._glob_candidate_paths(
-            workspace_root,
-            patterns=glob_patterns,
-            already=already,
-            limit=max(0, limit - len(candidates)),
-        )
-        candidates.extend(from_glob)
-        already.update(from_glob)
 
         if not candidates:
             fallback = self._rg_query_candidate_paths(
@@ -1190,6 +1209,7 @@ class MemoryService:
                 "rg",
                 "-l",
                 "-F",
+                "-L",
                 "-m",
                 "1",
                 "--hidden",
@@ -1212,7 +1232,7 @@ class MemoryService:
                 continue
             for raw_path in proc.stdout.splitlines():
                 try:
-                    rel = Path(raw_path).resolve().relative_to(workspace_root).as_posix()
+                    rel = self._workspace_relative_path(workspace_root, raw_path)
                 except Exception:
                     continue
                 if rel in already or rel in seen:
@@ -1251,6 +1271,7 @@ class MemoryService:
                 "rg",
                 "-n",
                 "-F",
+                "-L",
                 "-m",
                 str(max(1, limit)),
                 "-C",
@@ -1281,7 +1302,7 @@ class MemoryService:
                 header = lines[0]
                 path_part, _, _ = header.partition(":")
                 try:
-                    rel = Path(path_part).resolve().relative_to(workspace_root).as_posix()
+                    rel = self._workspace_relative_path(workspace_root, path_part)
                 except Exception:
                     continue
                 if rel in seen_paths:
@@ -2445,9 +2466,9 @@ class MemoryService:
         if write_api is None:
             return None
 
-        full_path = (workspace_root / relative_path).resolve()
+        full_path = Path(os.path.abspath(workspace_root / relative_path))
         try:
-            full_path.relative_to(workspace_root)
+            full_path.relative_to(Path(os.path.abspath(workspace_root)))
         except ValueError:
             logger.warning("Skipping path outside workspace root: %s", relative_path)
             return {"ok": False, "file_path": relative_path, "error": "outside_workspace"}

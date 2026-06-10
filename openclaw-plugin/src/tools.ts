@@ -177,7 +177,11 @@ function globToRegex(pattern: string): RegExp {
   for (let i = 0; i < pattern.length; i += 1) {
     const ch = pattern[i];
     const next = pattern[i + 1];
-    if (ch === "*" && next === "*") {
+    const afterNext = pattern[i + 2];
+    if (ch === "*" && next === "*" && afterNext === "/") {
+      out += "(?:.*/)?";
+      i += 2;
+    } else if (ch === "*" && next === "*") {
       out += ".*";
       i += 1;
     } else if (ch === "*") {
@@ -189,6 +193,39 @@ function globToRegex(pattern: string): RegExp {
     }
   }
   return new RegExp(`${out}$`);
+}
+
+function pathFromHit(hit: unknown): string {
+  const item = asRecord(hit);
+  if (!item) return "";
+  const raw = String(item.relative_path || item.path || item.file_path || item.uri || "");
+  if (!raw) return "";
+  try {
+    const candidate = raw.startsWith("file://") ? fileURLToPath(raw) : raw;
+    return candidate.split(path.sep).join("/");
+  } catch {
+    return raw.split(path.sep).join("/");
+  }
+}
+
+function hitMatchesAnyGlob(root: string, hit: unknown, regexes: RegExp[]): boolean {
+  if (!regexes.length) return true;
+  const raw = pathFromHit(hit);
+  if (!raw) return false;
+  const rel = path.isAbsolute(raw) ? path.relative(root, raw).split(path.sep).join("/") : raw.replace(/^\/+/, "");
+  return regexes.some((regex) => regex.test(rel));
+}
+
+function filterResponseByGlobs(response: unknown, root: string, globPatterns?: string): unknown {
+  const patterns = splitCsv(globPatterns);
+  if (!patterns.length) return response;
+  const data = asRecord(response);
+  if (!data || !Array.isArray(data.hits)) return response;
+  const regexes = patterns.map(globToRegex);
+  return {
+    ...data,
+    hits: data.hits.filter((hit) => hitMatchesAnyGlob(root, hit, regexes)),
+  };
 }
 
 async function walkFiles(root: string, maxFiles = 2000): Promise<string[]> {
@@ -205,9 +242,20 @@ async function walkFiles(root: string, maxFiles = 2000): Promise<string[]> {
     }
     for (const entry of entries) {
       const full = path.join(dir, entry.name);
-      if (entry.isDirectory()) {
+      let isDirectory = entry.isDirectory();
+      let isFile = entry.isFile();
+      if (entry.isSymbolicLink()) {
+        try {
+          const stat = await fs.stat(full);
+          isDirectory = stat.isDirectory();
+          isFile = stat.isFile();
+        } catch {
+          continue;
+        }
+      }
+      if (isDirectory) {
         if (!skip.has(entry.name)) stack.push(full);
-      } else if (entry.isFile()) {
+      } else if (isFile) {
         files.push(full);
         if (files.length >= maxFiles) break;
       }
@@ -265,7 +313,7 @@ async function localSnippetFallback(root: string, query: string, globPatterns?: 
   const lowerTerms = terms.map((term) => term.toLowerCase());
   const codeLike = new Set([
     ".py", ".pyi", ".js", ".jsx", ".ts", ".tsx", ".java", ".go", ".rs", ".c", ".cc", ".cpp", ".h", ".hpp",
-    ".rb", ".php", ".cs", ".swift", ".kt", ".scala", ".sh", ".txt", ".rst", ".md",
+    ".rb", ".php", ".cs", ".swift", ".kt", ".scala", ".sh", ".txt", ".rst", ".md", ".cj",
   ]);
   const rankedFiles = files
     .filter((file) => codeLike.has(path.extname(file).toLowerCase()))
@@ -442,6 +490,7 @@ export function registerRtcTools(api: any, config: ResolvedConfig, ensureBackend
         } catch (error) {
           throw error;
         }
+        response = filterResponseByGlobs(response, body.workspaceRoot, params.glob_patterns);
         const slim = slimSearchResponse(response, localSnippets, body.limit);
         rememberRtcHitFiles(body.workspaceRoot, slim);
         return toolResult(formatSearchSnippets(slim, body.query));

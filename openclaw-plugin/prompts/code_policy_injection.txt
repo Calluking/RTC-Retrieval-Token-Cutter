@@ -1,8 +1,10 @@
 ## Code Search/Edit Policy
 
-Use the normal SWE-bench issue-solving workflow, with this substitution:
+Use the normal issue-solving workflow, with this substitution:
 
-- For code discovery, use `rtc_search_code` instead of broad grep/find/read exploration.
+- For code or documentation discovery, use `rtc_search_code` instead of broad grep/find/read exploration.
+- When you need Markdown snippets, API docs, examples, signatures, usage notes, or files under `docs/`, search with `rtc_search_code` first.
+- Do not use broad `find`, `grep`, `cat`, or native `read` over Markdown documentation unless focused `rtc_search_code` calls were clearly insufficient.
 - Native `read` on long logs/traces may be filtered through RTC before content is returned. The backend stores L0 as filtered content, L1 as properties, and L2 as the original output.
 - Before editing any source/code file, call `rtc_search_code` at least once with a focused query.
 - Treat paths returned by `rtc_search_code` as workspace-relative paths; do not prepend the project root.

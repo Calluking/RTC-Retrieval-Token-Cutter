@@ -130,7 +130,7 @@ export function resolveConfig(config: RtcPluginConfig, pluginRoot: string, repoR
     filterEnabled: asBoolean(effectiveConfig.filterEnabled ?? process.env.RTC_FILTER_ENABLED, true),
     filterNativeRead: asBoolean(effectiveConfig.filterNativeRead ?? process.env.RTC_FILTER_NATIVE_READ, true),
     filterNativeExec: asBoolean(effectiveConfig.filterNativeExec ?? process.env.RTC_FILTER_NATIVE_BASH, true),
-    searchLimit: asNumber(effectiveConfig.searchLimit ?? process.env.RTC_SEARCH_LIMIT, 4, 1, 100),
+    searchLimit: asNumber(effectiveConfig.searchLimit ?? process.env.RTC_SEARCH_LIMIT, 5, 1, 100),
     accountId: effectiveConfig.accountId || process.env.RTC_ACCOUNT_ID || "acct-demo",
     userId: effectiveConfig.userId || process.env.RTC_USER_ID || "u-openclaw",
     agentId: effectiveConfig.agentId || process.env.RTC_AGENT_ID || "openclaw",
