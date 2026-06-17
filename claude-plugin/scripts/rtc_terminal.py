@@ -623,6 +623,7 @@ def hook_compose() -> int:
             additions.append(policy)
     data = {}
     if ensure_backend_for_hook():
+        _sync_workspace_on_prompt(session_id)
         try:
             data = post_json("/api/v1/compose", {**identity(session_id), "prompt": prompt}, timeout=30)
             log("call_compose", f"POST {api_url()}/api/v1/compose session={session_id} prompt_len={len(prompt)}")
@@ -678,6 +679,43 @@ def hook_add_session_message() -> int:
 
 def _workspace_root() -> str:
     return os.environ.get("RTC_WORKSPACE_ROOT") or os.environ.get("CLAUDE_PROJECT_DIR") or os.getcwd()
+
+
+def _sync_workspace_on_prompt(session_id: str) -> None:
+    if not truthy_env("RTC_CODE_SYNC_ON_PROMPT", "1"):
+        return
+
+    workspace_root = _workspace_root()
+    try:
+        timeout = max(1.0, float(os.environ.get("RTC_CODE_SYNC_HOOK_TIMEOUT", "30")))
+    except ValueError:
+        timeout = 30.0
+    wait_for_index = truthy_env("RTC_CODE_SYNC_WAIT_FOR_INDEX", "1")
+    body = {
+        **identity(session_id),
+        "workspaceRoot": workspace_root,
+        "reason": "user_prompt_submit",
+        "wait_for_index": wait_for_index,
+    }
+    try:
+        data = post_json("/api/v1/call/code_sync_workspace", body, timeout=timeout)
+    except Exception as exc:
+        log("code_sync", f"prompt sync failed: {exc}")
+        return
+
+    if data.get("ok"):
+        log(
+            "code_sync",
+            "mode=%s changed=%s deleted=%s ingested=%s"
+            % (
+                data.get("mode", ""),
+                data.get("changed_count", ""),
+                data.get("deleted_count", ""),
+                (data.get("apply") or {}).get("ingested_count", ""),
+            ),
+        )
+    else:
+        log("code_sync", f"prompt sync skipped/failed: {compact_json(data, limit=800)}")
 
 
 def _canonicalize_read_file_path(file_path: str, workspace_root: str) -> tuple[str, str]:

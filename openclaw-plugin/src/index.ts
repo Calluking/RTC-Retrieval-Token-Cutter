@@ -64,7 +64,9 @@ export default definePluginEntry({
     registerRtcTools(api, config, async () => {
       if (config.autoStart) await service.start();
     });
-    registerPolicyHook(api, config);
+    registerPolicyHook(api, config, async () => {
+      if (config.autoStart) await service.start();
+    });
     registerFilterHooks(api, config, async () => {
       if (config.autoStart) await service.start();
     }, api.logger ?? console);

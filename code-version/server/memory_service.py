@@ -8,10 +8,12 @@ Used by both:
 from __future__ import annotations
 
 import logging
+import json
 import math
 import os
 import re
 import hashlib
+import shutil
 import subprocess
 import threading
 import time
@@ -72,6 +74,7 @@ _IGNORED_CODE_DIRS = {
     "coverage", ".next", ".turbo",
 }
 DEFAULT_BOOTSTRAP_INGEST_MAX_FILES = 200
+DEFAULT_CODE_SYNC_MAX_FILES = 500
 _CODE_QUERY_STOPWORDS = {
     "the", "and", "for", "with", "from", "into", "that", "this", "when", "what",
     "where", "which", "how", "does", "dont", "doesnt", "handle", "nicely", "issue",
@@ -125,6 +128,23 @@ def _bootstrap_full_index_cap_files() -> int | None:
     if n <= 0:
         return None
     return max(1, min(n, 2000))
+
+
+def _code_sync_enabled() -> bool:
+    return _env_bool("RTC_CODE_SYNC_ON_PROMPT", True)
+
+
+def _code_sync_max_files() -> int:
+    raw = os.environ.get("RTC_CODE_SYNC_MAX_FILES", str(DEFAULT_CODE_SYNC_MAX_FILES))
+    try:
+        n = int(raw)
+    except ValueError:
+        n = DEFAULT_CODE_SYNC_MAX_FILES
+    return max(1, min(n, 5000))
+
+
+def _code_sync_wait_for_index_default() -> bool:
+    return _env_bool("RTC_CODE_SYNC_WAIT_FOR_INDEX", True)
 
 
 def _extract_code_query_terms(query: str) -> list[str]:
@@ -540,6 +560,7 @@ class MemoryService:
         self._tenant_admin = None
         self._search_bootstrapped_workspaces: set[tuple[str, str]] = set()
         self._search_bootstrap_lock = threading.Lock()
+        self._code_sync_lock = threading.Lock()
 
     # -- RequestContext factory ------------------------------------------------
 
@@ -793,6 +814,358 @@ class MemoryService:
         except Exception as exc:
             logger.warning("workspace code listing failed for %s: %s", workspace_root, exc)
         return found
+
+    @staticmethod
+    def _is_code_sync_path(relative_path: str) -> bool:
+        try:
+            rel = Path(str(relative_path or "").replace("\\", "/"))
+        except Exception:
+            return False
+        if rel.is_absolute() or ".." in rel.parts:
+            return False
+        if any(part in _IGNORED_CODE_DIRS or part.startswith(".cache") for part in rel.parts):
+            return False
+        return rel.suffix.lower() in _CODE_EXTENSIONS
+
+    def _git_workspace_code_files(
+        self,
+        workspace_root: Path,
+        *,
+        max_files: int,
+    ) -> tuple[list[str], dict]:
+        """List git-visible code files, including untracked non-ignored files."""
+        cmd = [
+            "git",
+            "-C",
+            str(workspace_root),
+            "ls-files",
+            "--cached",
+            "--others",
+            "--exclude-standard",
+        ]
+        try:
+            proc = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=10,
+                check=False,
+            )
+        except FileNotFoundError:
+            return [], {"ok": False, "error": "git_not_found"}
+        except subprocess.TimeoutExpired:
+            return [], {"ok": False, "error": "git_ls_files_timeout"}
+
+        if proc.returncode != 0:
+            return [], {
+                "ok": False,
+                "returncode": proc.returncode,
+                "stderr": (proc.stderr or "").strip()[:400],
+            }
+
+        out: list[str] = []
+        seen: set[str] = set()
+        for raw in proc.stdout.splitlines():
+            rel = raw.strip().replace("\\", "/")
+            if not rel or rel in seen:
+                continue
+            if not self._is_code_sync_path(rel):
+                continue
+            full = (workspace_root / rel).resolve()
+            try:
+                full.relative_to(workspace_root)
+            except ValueError:
+                continue
+            if not full.is_file():
+                continue
+            seen.add(rel)
+            out.append(rel)
+            if len(out) >= max_files:
+                break
+        return out, {
+            "ok": True,
+            "source": "git_ls_files",
+            "max_files": max_files,
+            "truncated": len(out) >= max_files,
+        }
+
+    def _current_code_sync_files(self, workspace_root: Path, *, max_files: int) -> tuple[list[str], dict]:
+        git_files, git_meta = self._git_workspace_code_files(workspace_root, max_files=max_files)
+        if git_meta.get("ok"):
+            return git_files, git_meta
+
+        fallback = self._list_workspace_code_files(workspace_root, max_files=max_files)
+        return fallback, {
+            "ok": True,
+            "source": "workspace_walk",
+            "git": git_meta,
+            "max_files": max_files,
+            "truncated": len(fallback) >= max_files,
+        }
+
+    def _code_sync_state_dir(self, workspace_root: Path, ctx: RequestContext) -> Path:
+        runtime_dir = Path(os.environ.get("RTC_RUNTIME_DIR") or ".").expanduser().resolve()
+        raw = "\0".join([
+            ctx.account_id,
+            ctx.user_id,
+            ctx.agent_id,
+            str(workspace_root.resolve()),
+        ])
+        key = hashlib.sha256(raw.encode("utf-8")).hexdigest()[:24]
+        return runtime_dir / "code-sync-state" / key
+
+    def _write_code_sync_snapshot(
+        self,
+        *,
+        workspace_root: Path,
+        snapshot_dir: Path,
+        relative_paths: list[str],
+    ) -> int:
+        if snapshot_dir.exists():
+            shutil.rmtree(snapshot_dir)
+        snapshot_dir.mkdir(parents=True, exist_ok=True)
+
+        copied = 0
+        root = workspace_root.resolve()
+        for rel in sorted(dict.fromkeys(relative_paths)):
+            if not self._is_code_sync_path(rel):
+                continue
+            source = (root / rel).resolve()
+            try:
+                source.relative_to(root)
+            except ValueError:
+                continue
+            if not source.is_file():
+                continue
+            target = snapshot_dir / rel
+            target.parent.mkdir(parents=True, exist_ok=True)
+            try:
+                shutil.copy2(source, target)
+                copied += 1
+            except OSError as exc:
+                logger.warning("code sync snapshot copy failed for %s: %s", rel, exc)
+        return copied
+
+    @staticmethod
+    def _relative_from_sync_diff_path(raw_path: str, old_dir: Path, new_dir: Path) -> str:
+        candidate = Path(raw_path).expanduser().resolve(strict=False)
+        for root in (new_dir.resolve(strict=False), old_dir.resolve(strict=False)):
+            try:
+                return candidate.relative_to(root).as_posix()
+            except ValueError:
+                continue
+        return ""
+
+    def _git_diff_code_sync_snapshots(
+        self,
+        *,
+        old_dir: Path,
+        new_dir: Path,
+    ) -> dict:
+        cmd = [
+            "git",
+            "diff",
+            "--no-index",
+            "--name-status",
+            "--no-renames",
+            str(old_dir),
+            str(new_dir),
+        ]
+        try:
+            proc = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=30,
+                check=False,
+            )
+        except FileNotFoundError:
+            return {"ok": False, "error": "git_not_found", "changed": [], "deleted": []}
+        except subprocess.TimeoutExpired:
+            return {"ok": False, "error": "git_diff_timeout", "changed": [], "deleted": []}
+
+        # git diff --no-index returns 1 when differences are found.
+        if proc.returncode not in (0, 1):
+            return {
+                "ok": False,
+                "error": "git_diff_failed",
+                "returncode": proc.returncode,
+                "stderr": (proc.stderr or "").strip()[:800],
+                "changed": [],
+                "deleted": [],
+            }
+
+        changed: list[str] = []
+        deleted: list[str] = []
+        seen_changed: set[str] = set()
+        seen_deleted: set[str] = set()
+        for line in proc.stdout.splitlines():
+            parts = line.split("\t")
+            if len(parts) < 2:
+                continue
+            status = parts[0].strip()
+            path_parts = parts[1:]
+            if not status:
+                continue
+            if status.startswith("D"):
+                rel = self._relative_from_sync_diff_path(path_parts[0], old_dir, new_dir)
+                if rel and self._is_code_sync_path(rel) and rel not in seen_deleted:
+                    seen_deleted.add(rel)
+                    deleted.append(rel)
+                continue
+
+            raw_path = path_parts[-1] if len(path_parts) > 1 else path_parts[0]
+            rel = self._relative_from_sync_diff_path(raw_path, old_dir, new_dir)
+            if rel and self._is_code_sync_path(rel) and rel not in seen_changed:
+                seen_changed.add(rel)
+                changed.append(rel)
+
+        return {
+            "ok": True,
+            "returncode": proc.returncode,
+            "changed": changed,
+            "deleted": deleted,
+            "raw_line_count": len(proc.stdout.splitlines()),
+        }
+
+    @staticmethod
+    def _load_code_sync_meta(meta_path: Path) -> dict:
+        try:
+            return json.loads(meta_path.read_text(encoding="utf-8"))
+        except Exception:
+            return {}
+
+    @staticmethod
+    def _write_code_sync_meta(meta_path: Path, payload: dict) -> None:
+        meta_path.parent.mkdir(parents=True, exist_ok=True)
+        meta_path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+
+    def _apply_code_sync_changes(
+        self,
+        *,
+        workspace_root: Path,
+        params: dict,
+        ctx: RequestContext,
+        changed_paths: list[str],
+        deleted_paths: list[str],
+        wait_for_index: bool,
+    ) -> dict:
+        if not changed_paths and not deleted_paths:
+            return {
+                "ok": True,
+                "changed_count": 0,
+                "deleted_count": 0,
+                "ingested_count": 0,
+                "deleted_memory_count": 0,
+            }
+
+        if self.get_write_api() is None:
+            return {"ok": False, "error": "write_api_unavailable"}
+
+        project_id = str(
+            params.get("projectId")
+            or params.get("project_id")
+            or workspace_root.name
+        )
+        root = workspace_root.resolve()
+
+        delete_totals = {"deleted": 0, "failed": 0, "uris": [], "errors": []}
+
+        def delete_uris(uris: list[str]) -> None:
+            out = self._delete_code_memory_uris(uris=uris, ctx=ctx)
+            delete_totals["deleted"] += int(out.get("deleted", 0) or 0)
+            delete_totals["failed"] += int(out.get("failed", 0) or 0)
+            delete_totals["uris"].extend(out.get("uris", []) or [])
+            delete_totals["errors"].extend(out.get("errors", []) or [])
+
+        for rel in sorted(dict.fromkeys(deleted_paths)):
+            file_path = (root / rel).resolve()
+            existing = self._list_code_memory_records_for_file(file_path=file_path, ctx=ctx)
+            delete_uris(list(existing.keys()))
+
+        for rel in sorted(dict.fromkeys(changed_paths)):
+            file_path = (root / rel).resolve()
+            existing = self._list_code_memory_records_for_file(file_path=file_path, ctx=ctx)
+            expected = self._expected_code_memory_records_for_file(
+                workspace_root=root,
+                relative_path=rel,
+                ctx=ctx,
+            )
+            stale_or_dirty: list[str] = []
+            for uri, old_meta in existing.items():
+                new_meta = expected.get(uri)
+                if new_meta is None:
+                    stale_or_dirty.append(uri)
+                    continue
+                old_hash = str((old_meta or {}).get("chunk_hash") or "").strip()
+                new_hash = str((new_meta or {}).get("chunk_hash") or "").strip()
+                if old_hash and new_hash and old_hash != new_hash:
+                    stale_or_dirty.append(uri)
+            delete_uris(stale_or_dirty)
+
+        ingested: list[str] = []
+        failed: list[dict] = []
+        for rel in sorted(dict.fromkeys(changed_paths)):
+            full = (root / rel).resolve()
+            try:
+                full.relative_to(root)
+            except ValueError:
+                failed.append({"file_path": rel, "error": "outside_workspace"})
+                continue
+            if not full.is_file():
+                continue
+            res = self._ingest_workspace_code_path(
+                workspace_root=root,
+                relative_path=rel,
+                ctx=ctx,
+                project_id=project_id,
+            )
+            if res and res.get("ok"):
+                ingested.append(rel)
+            else:
+                failed.append({
+                    "file_path": rel,
+                    "error": (res or {}).get("error", "ingest_failed") if isinstance(res, dict) else "ingest_failed",
+                })
+
+        if wait_for_index:
+            try:
+                timeout_raw = params.get("sync_timeout_sec", params.get("syncTimeoutSec"))
+                timeout_sec = max(1.0, float(timeout_raw or os.environ.get("RTC_CODE_SYNC_TIMEOUT_SEC", "30")))
+            except (TypeError, ValueError):
+                timeout_sec = 30.0
+            drain = self._drain_outbox_until_quiet(
+                account_id=ctx.account_id,
+                deadline=time.time() + timeout_sec,
+            )
+        else:
+            self._async_drain(account_id=ctx.account_id)
+            drain = {"background": True, "timed_out": False}
+
+        return {
+            "ok": True,
+            "changed_count": len(changed_paths),
+            "deleted_count": len(deleted_paths),
+            "ingested_count": len(ingested),
+            "ingested_paths": ingested,
+            "failed_paths": failed[:20],
+            "failed_count": len(failed),
+            "deleted_memory_count": delete_totals["deleted"],
+            "delete_failed_count": delete_totals["failed"],
+            "delete_errors": delete_totals["errors"][:20],
+            "drain": drain,
+        }
+
+    @staticmethod
+    def _param_bool(raw: object, default: bool) -> bool:
+        if raw is None:
+            return default
+        if isinstance(raw, bool):
+            return raw
+        text = str(raw).strip().lower()
+        if not text:
+            return default
+        return text in {"1", "true", "yes", "on"}
 
     @staticmethod
     def _parse_hint_list(raw: object) -> list[str]:
@@ -2444,37 +2817,130 @@ class MemoryService:
         ctx: RequestContext,
     ) -> list[str]:
         """Return active code-memory URIs whose stored metadata belongs to one file."""
+        return list(self._list_code_memory_records_for_file(file_path=file_path, ctx=ctx).keys())
+
+    def _list_code_memory_records_for_file(
+        self,
+        *,
+        file_path: Path,
+        ctx: RequestContext,
+    ) -> dict[str, dict]:
+        """Return active code-memory raw metadata records for one source file."""
         if not _HAS_AGFS:
-            return []
+            return {}
 
         client = AGFSClient(api_base_url=self._agfs_base_url)
         agfs = AGFSContextFS(client=client, mount_prefix=self._mount_prefix)
         code_root_uri = f"ctx://{ctx.account_id}/agents/{ctx.agent_id}/memories/code"
         target_norm = str(file_path.resolve()).replace("\\", "/")
-        lang = detect_language(str(file_path))
-        slug_prefix = re.sub(r"[^a-z0-9]+", "_", f"{lang}:{target_norm}:".lower()).strip("_")
 
-        hits: list[str] = []
+        hits: dict[str, dict] = {}
         for child_uri in agfs.list_children(code_root_uri, ctx):
-            slug = child_uri.rstrip("/").rsplit("/", 1)[-1].lower()
-            if slug == slug_prefix or slug.startswith(f"{slug_prefix}_"):
-                hits.append(child_uri)
-                continue
+            raw_meta: dict = {}
+            node = None
             try:
-                node = agfs.read_node(child_uri, ctx)
+                node_path = agfs._uri_to_agfs_path(child_uri)
+                meta_content = agfs._read_file(node_path + agfs.FILE_META)
+                raw_meta = json.loads(meta_content) if meta_content else {}
             except Exception:
-                continue
-            meta = getattr(node, "metadata", {}) or {}
-            stored = str(meta.get("file_path") or "").strip()
-            if not stored:
-                continue
+                raw_meta = {}
+
+            stored = str(raw_meta.get("file_path") or "").strip()
             try:
                 stored_norm = str(Path(stored).expanduser().resolve()).replace("\\", "/")
             except Exception:
                 stored_norm = stored.replace("\\", "/")
             if stored_norm == target_norm:
-                hits.append(child_uri)
+                hits[child_uri] = raw_meta
+                continue
+
+            ctags = raw_meta.get("ctags") if isinstance(raw_meta, dict) else {}
+            ctags_path = str((ctags or {}).get("path") or "").strip().replace("\\", "/")
+            if ctags_path and (
+                target_norm.endswith(f"/{ctags_path}") or target_norm == ctags_path
+            ):
+                hits[child_uri] = raw_meta
+                continue
+
+            blob_parts = [
+                str(raw_meta.get("code_identity") or ""),
+                str(raw_meta.get("graph_document") or ""),
+                str(raw_meta.get("bm25_document") or ""),
+            ]
+            if not any(blob_parts):
+                try:
+                    node = node or agfs.read_node(child_uri, ctx)
+                    blob_parts.extend([
+                        getattr(node, "content", "") or "",
+                        getattr(node, "overview", "") or "",
+                        getattr(node, "abstract", "") or "",
+                    ])
+                except Exception:
+                    pass
+            blob = "\n".join(blob_parts).replace("\\", "/")
+            if target_norm in blob:
+                hits[child_uri] = raw_meta
         return hits
+
+    @staticmethod
+    def _should_reject_code_chunk(file_path: str, symbol: str) -> bool:
+        """Reject synthetic/internal diagnostic chunks from code memory."""
+        path = str(file_path or "").strip().lower()
+        base = os.path.basename(path)
+        sym = str(symbol or "").strip().lower()
+
+        if base.startswith("turn_"):
+            return True
+        if "diag_many_funcs.py" in path:
+            return True
+        if re.fullmatch(r"ast_h\d+", sym) and "diag" in path:
+            return True
+        return False
+
+    def _expected_code_memory_records_for_file(
+        self,
+        *,
+        workspace_root: Path,
+        relative_path: str,
+        ctx: RequestContext,
+    ) -> dict[str, dict]:
+        """Return expected current code-memory URI/hash records for a workspace file."""
+        full_path = (workspace_root / relative_path).resolve()
+        try:
+            full_path.relative_to(workspace_root.resolve())
+        except ValueError:
+            return {}
+        if not full_path.is_file():
+            return {}
+        try:
+            source_code = full_path.read_text(encoding="utf-8")
+        except Exception:
+            return {}
+        if not source_code.strip():
+            return {}
+
+        lang = detect_language(str(full_path))
+        try:
+            chunks = chunk_source_code(source_code, str(full_path), language=lang)
+        except Exception as exc:
+            logger.warning("code sync chunk planning failed for %s: %s", relative_path, exc)
+            return {}
+
+        expected: dict[str, dict] = {}
+        for chunk in chunks:
+            if self._should_reject_code_chunk(chunk.file_path, chunk.symbol):
+                continue
+            uri = self._code_memory_uri_for_chunk(chunk, ctx)
+            if not uri:
+                continue
+            expected[uri] = {
+                "chunk_hash": getattr(chunk, "chunk_hash", ""),
+                "file_path": str(full_path),
+                "symbol": getattr(chunk, "symbol", ""),
+                "start_line": getattr(chunk, "start_line", None),
+                "end_line": getattr(chunk, "end_line", None),
+            }
+        return expected
 
     def _delete_code_memory_uris(
         self,
@@ -4210,6 +4676,148 @@ class MemoryService:
             "ingested_count": len(new_paths),
             "drain": drain,
         }
+
+    def code_sync_workspace(self, params: dict) -> dict:
+        """Sync code memory from a git-diff baseline for prompt-time freshness.
+
+        The first sync compares an empty snapshot to the current workspace, so
+        every git-visible code file is treated as an addition. Later syncs run
+        `git diff --no-index --name-status` between the last prompt snapshot
+        and a fresh snapshot, then rebuild only changed code memories and delete
+        memories for removed files.
+        """
+        if not _code_sync_enabled() and not self._param_bool(params.get("force"), False):
+            return {"ok": True, "skipped": True, "reason": "disabled"}
+
+        ctx = params.get("_ctx") or self.build_context(params)
+        workspace_root = self._resolve_workspace_root(params)
+        if workspace_root is None:
+            return {"ok": False, "error": "no_workspace"}
+        workspace_root = workspace_root.resolve()
+
+        if not self.get_write_api():
+            return {"ok": False, "error": "write_api_unavailable"}
+
+        max_raw = params.get("max_files", params.get("maxFiles"))
+        try:
+            max_files = int(max_raw) if max_raw is not None else _code_sync_max_files()
+        except (TypeError, ValueError):
+            max_files = _code_sync_max_files()
+        max_files = max(1, min(max_files, 5000))
+
+        wait_for_index = self._param_bool(
+            params.get("wait_for_index", params.get("waitForIndex")),
+            _code_sync_wait_for_index_default(),
+        )
+        force = self._param_bool(params.get("force"), False)
+
+        with self._code_sync_lock:
+            state_dir = self._code_sync_state_dir(workspace_root, ctx)
+            snapshot_dir = state_dir / "snapshot"
+            current_dir = state_dir / "current"
+            empty_dir = state_dir / "empty"
+            meta_path = state_dir / "meta.json"
+            meta = self._load_code_sync_meta(meta_path)
+            first_sync = force or not bool(meta.get("initialized")) or not snapshot_dir.exists()
+
+            current_paths, listing = self._current_code_sync_files(workspace_root, max_files=max_files)
+            copied = self._write_code_sync_snapshot(
+                workspace_root=workspace_root,
+                snapshot_dir=current_dir,
+                relative_paths=current_paths,
+            )
+
+            if first_sync:
+                if empty_dir.exists():
+                    shutil.rmtree(empty_dir)
+                empty_dir.mkdir(parents=True, exist_ok=True)
+                old_dir = empty_dir
+            else:
+                old_dir = snapshot_dir
+
+            diff = self._git_diff_code_sync_snapshots(old_dir=old_dir, new_dir=current_dir)
+            if not diff.get("ok"):
+                try:
+                    if current_dir.exists():
+                        shutil.rmtree(current_dir)
+                except OSError:
+                    pass
+                return {
+                    "ok": False,
+                    "error": diff.get("error", "git_diff_failed"),
+                    "workspace_root": str(workspace_root),
+                    "listing": listing,
+                    "diff": diff,
+                }
+
+            changed_paths = diff.get("changed", []) or []
+            deleted_paths = [] if first_sync else (diff.get("deleted", []) or [])
+            if first_sync and not changed_paths:
+                changed_paths = list(current_paths)
+
+            apply_out = self._apply_code_sync_changes(
+                workspace_root=workspace_root,
+                params=params,
+                ctx=ctx,
+                changed_paths=changed_paths,
+                deleted_paths=deleted_paths,
+                wait_for_index=wait_for_index,
+            )
+            if not apply_out.get("ok"):
+                try:
+                    if current_dir.exists():
+                        shutil.rmtree(current_dir)
+                except OSError:
+                    pass
+                return {
+                    **apply_out,
+                    "workspace_root": str(workspace_root),
+                    "mode": "initial_full" if first_sync else "incremental_diff",
+                    "listing": listing,
+                    "diff": diff,
+                }
+
+            if snapshot_dir.exists():
+                shutil.rmtree(snapshot_dir)
+            current_dir.rename(snapshot_dir)
+            now = _dt.utcnow().isoformat() + "Z"
+            self._write_code_sync_meta(
+                meta_path,
+                {
+                    "initialized": True,
+                    "workspace_root": str(workspace_root),
+                    "account_id": ctx.account_id,
+                    "user_id": ctx.user_id,
+                    "agent_id": ctx.agent_id,
+                    "last_synced_at": now,
+                    "last_mode": "initial_full" if first_sync else "incremental_diff",
+                    "last_changed_count": len(changed_paths),
+                    "last_deleted_count": len(deleted_paths),
+                    "tracked_file_count": copied,
+                    "listing": listing,
+                },
+            )
+
+            return {
+                "ok": True,
+                "workspace_root": str(workspace_root),
+                "mode": "initial_full" if first_sync else "incremental_diff",
+                "first_sync": first_sync,
+                "changed_paths": changed_paths[:50],
+                "deleted_paths": deleted_paths[:50],
+                "changed_count": len(changed_paths),
+                "deleted_count": len(deleted_paths),
+                "snapshot_file_count": copied,
+                "listing": listing,
+                "diff": {
+                    "ok": diff.get("ok"),
+                    "raw_line_count": diff.get("raw_line_count", 0),
+                    "returncode": diff.get("returncode", 0),
+                },
+                "apply": apply_out,
+                "wait_for_index": wait_for_index,
+                "state_dir": str(state_dir),
+            }
 
     def code_semantic_search(self, params: dict) -> dict:
         """Code-mode semantic search over grep/glob-selected candidates."""
