@@ -79,7 +79,7 @@ ensure_python_runtime
 _swe_prompt_exports="$(
   REPO_BASE="$REPO_BASE" \
   SWE_PROMPT_KIND="openclaw_plain" \
-  "$PY_BIN" "$SCRIPT_DIR/../../resolve_swe_lite_instance.py"
+  "$PY_BIN" "$_SCRIPTS_MCP_DIR/../../resolve_swe_lite_instance.py"
 )" || {
   echo "[setup] Failed to resolve SWE-bench instance metadata for ${SWE_LITE_INSTANCE_ID:-<unset>}." >&2
   exit 1
