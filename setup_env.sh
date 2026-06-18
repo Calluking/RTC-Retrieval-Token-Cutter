@@ -28,6 +28,9 @@ export AGFS_HTTP_PORT="${AGFS_HTTP_PORT:-1833}"
 export RTC_PLUGIN_AUTO_START="${RTC_PLUGIN_AUTO_START:-1}"
 export RTC_PLUGIN_AUTO_STOP="${RTC_PLUGIN_AUTO_STOP:-1}"
 export RTC_INJECT_FILTERING_PROMPT="${RTC_INJECT_FILTERING_PROMPT:-0}"
+# Caveman compression for the host agent's thinking + responses.
+# 0=off, 1=lite, 2=full, 3=ultra. Read by both plugins and SWE runners.
+export RTC_CAVEMAN_LEVEL="${RTC_CAVEMAN_LEVEL:-0}"
 export OPENCLAW_MODEL="${OPENCLAW_MODEL:-}"
 
 export GOPROXY="${GOPROXY:-https://goproxy.cn,direct}"

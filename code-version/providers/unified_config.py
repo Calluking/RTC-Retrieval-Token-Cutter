@@ -340,6 +340,10 @@ class RtcConfig:
     http_port: int = 8090
     workers: int = 2
     code_toggle: bool = False
+    # Host-agent "caveman" compression level (0=off, 1=lite, 2=full, 3=ultra).
+    # Surfaced here for visibility/logging; the actual prompt injection happens
+    # in the Claude/OpenClaw plugins and SWE runners that read RTC_CAVEMAN_LEVEL.
+    caveman_level: int = 0
     http_ip_allowlist: list[str] = field(default_factory=list)
     http_ip_allowlist_trust_proxy: bool = False
     http_trusted_proxies: list[str] = field(default_factory=list)
@@ -406,6 +410,7 @@ class RtcConfig:
         sharing = raw.get("sharing") or {}
         memory = raw.get("memory") or {}
         cache = raw.get("cache") or {}
+        agent = raw.get("agent") or {}
 
         base_url = _normalize_url(
             _resolve(llm.get("base_url"), "RTC_BASE_URL", None)
@@ -477,6 +482,10 @@ class RtcConfig:
             http_port=_resolve(svc.get("http_port"), "RTC_HTTP_PORT", 8090, int),
             workers=_resolve(svc.get("workers"), "RTC_WORKERS", 2, int),
             code_toggle=_resolve_bool(svc.get("code_toggle"), "RTC_CODE_TOGGLE", False),
+            caveman_level=max(
+                0,
+                min(3, _resolve(agent.get("caveman_level"), "RTC_CAVEMAN_LEVEL", 0, int)),
+            ),
             http_ip_allowlist=_resolve_list(
                 svc.get("http_ip_allowlist"), "RTC_HTTP_IP_ALLOWLIST", [],
             ),

@@ -24,6 +24,8 @@ const FILTERING_PROMPT_BULLETS = [
   "- Native `read` on long logs/traces may be filtered through RTC before content is returned. The backend stores L0 as filtered content, L1 as properties, and L2 as the original output.",
 ];
 
+const CAVEMAN_MAX_LEVEL = 3;
+
 function truthyEnv(name: string, fallback = "0"): boolean {
   const raw = (process.env[name] || fallback).trim().toLowerCase();
   return ["1", "true", "yes", "on"].includes(raw);
@@ -56,6 +58,36 @@ export function renderPolicyPrompt(text: string, includeFiltering = truthyEnv("R
   if (end === -1) return rendered.slice(0, start).trimEnd();
 
   return `${rendered.slice(0, start).trimEnd()}\n\n${rendered.slice(end).trimStart()}`.trim();
+}
+
+export function cavemanLevel(): number {
+  return numberEnv("RTC_CAVEMAN_LEVEL", 0, 0, CAVEMAN_MAX_LEVEL);
+}
+
+export function parseCavemanBlock(text: string, level: number): string {
+  const startMarker = `### CAVEMAN L${level} ###`;
+  const collected: string[] = [];
+  let capturing = false;
+  for (const line of text.split("\n")) {
+    if (line.startsWith("### CAVEMAN")) {
+      if (capturing) break;
+      if (line.trim() === startMarker) capturing = true;
+      continue;
+    }
+    if (capturing) collected.push(line);
+  }
+  return collected.join("\n").trim();
+}
+
+export function loadCavemanPrompt(pluginRoot: string): string {
+  const level = cavemanLevel();
+  if (level <= 0) return "";
+  const cavemanPath = path.join(pluginRoot, "prompts", "caveman_injection.txt");
+  try {
+    return parseCavemanBlock(fs.readFileSync(cavemanPath, "utf8"), level);
+  } catch {
+    return "";
+  }
 }
 
 function looksLikeCodePrompt(value: string): boolean {
@@ -127,12 +159,23 @@ export function registerPolicyHook(api: any, config: ResolvedConfig, ensureBacke
     }
   }
 
+  const caveman = loadCavemanPrompt(config.pluginRoot);
+
   api.on("before_prompt_build", async (event: any) => {
     const prompt = extractPrompt(event);
     if (!prompt || prompt.startsWith("/")) return event;
     await syncWorkspaceOnPrompt(api, config, ensureBackend);
-    if (!config.injectCodePolicy || !policy || !looksLikeCodePrompt(prompt)) return event;
-    const context = `[Retrieval Token Cutter]\n${policy}`;
+
+    const blocks: string[] = [];
+    if (config.injectCodePolicy && policy && looksLikeCodePrompt(prompt)) {
+      blocks.push(`[Retrieval Token Cutter]\n${policy}`);
+    }
+    if (caveman) {
+      blocks.push(`[Retrieval Token Cutter | Caveman]\n${caveman}`);
+    }
+    if (blocks.length === 0) return event;
+
+    const context = blocks.join("\n\n");
     return {
       ...event,
       injectedContext: event?.injectedContext ? `${event.injectedContext}\n\n${context}` : context,

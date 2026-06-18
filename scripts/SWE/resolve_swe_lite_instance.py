@@ -107,6 +107,43 @@ def esc(value: str) -> str:
     return json.dumps(value)
 
 
+CAVEMAN_MAX_LEVEL = 3
+CAVEMAN_PROMPT_PATH = Path(__file__).resolve().parents[2] / "prompts" / "caveman_injection.txt"
+
+
+def caveman_level() -> int:
+    raw = (os.environ.get("RTC_CAVEMAN_LEVEL") or "0").strip()
+    try:
+        level = int(raw)
+    except ValueError:
+        return 0
+    return max(0, min(CAVEMAN_MAX_LEVEL, level))
+
+
+def caveman_block() -> str:
+    """Return the caveman instruction block for the configured level, or ''."""
+    level = caveman_level()
+    if level <= 0:
+        return ""
+    try:
+        text = CAVEMAN_PROMPT_PATH.read_text(encoding="utf-8")
+    except OSError:
+        return ""
+    start_marker = f"### CAVEMAN L{level} ###"
+    collected: list[str] = []
+    capturing = False
+    for line in text.splitlines():
+        if line.startswith("### CAVEMAN"):
+            if capturing:
+                break
+            if line.strip() == start_marker:
+                capturing = True
+            continue
+        if capturing:
+            collected.append(line)
+    return "\n".join(collected).strip()
+
+
 def build_prompt(row: dict, prompt_kind: str) -> tuple[str, str]:
     repo = row["repo"]
     base_commit = row["base_commit"]
@@ -188,6 +225,9 @@ def main() -> int:
     inst_path.write_text(json.dumps(row, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
 
     prompt, prompt_name = build_prompt(row, prompt_kind)
+    caveman = caveman_block()
+    if caveman:
+        prompt = f"{prompt}\n{caveman}\n"
     prompt_path = inst_dir / prompt_name
     prompt_path.write_text(prompt, encoding="utf-8")
 

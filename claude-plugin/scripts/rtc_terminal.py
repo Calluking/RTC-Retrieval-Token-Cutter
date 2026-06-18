@@ -24,6 +24,8 @@ SIDE_EFFECT_TOOLS = {"Write", "Edit", "MultiEdit", "Bash", "NotebookEdit"}
 MAX_TOOL_CHARS = 10000
 PLUGIN_ROOT = Path(__file__).resolve().parents[1]
 CODE_POLICY_PROMPT_PATH = PLUGIN_ROOT / "prompts" / "code_policy_injection.txt"
+CAVEMAN_PROMPT_PATH = PLUGIN_ROOT / "prompts" / "caveman_injection.txt"
+CAVEMAN_MAX_LEVEL = 3
 FILTERING_PROMPT_HEADING = "## Filtering Strategy"
 FILTERING_PROMPT_END_MARKER = "Keep the workflow compact:"
 FILTERING_PROMPT_BULLETS = (
@@ -190,6 +192,47 @@ def code_policy_prompt() -> str:
         log("call_compose", f"failed to read code policy injection: {exc}")
         return ""
     return render_code_policy_prompt(text, include_filtering=filtering_prompt_enabled())
+
+
+def caveman_level() -> int:
+    """Parse RTC_CAVEMAN_LEVEL into a clamped 0..CAVEMAN_MAX_LEVEL integer."""
+    raw = (os.environ.get("RTC_CAVEMAN_LEVEL") or "0").strip()
+    try:
+        level = int(raw)
+    except ValueError:
+        return 0
+    return max(0, min(CAVEMAN_MAX_LEVEL, level))
+
+
+def parse_caveman_block(text: str, level: int) -> str:
+    """Extract the body for '### CAVEMAN L<level> ###' from the injection file."""
+    start_marker = f"### CAVEMAN L{level} ###"
+    lines = text.splitlines()
+    collected: list[str] = []
+    capturing = False
+    for line in lines:
+        if line.startswith("### CAVEMAN"):
+            if capturing:
+                break
+            if line.strip() == start_marker:
+                capturing = True
+            continue
+        if capturing:
+            collected.append(line)
+    return "\n".join(collected).strip()
+
+
+def caveman_prompt() -> str:
+    """Return the caveman block for the configured level, or '' when disabled."""
+    level = caveman_level()
+    if level <= 0:
+        return ""
+    try:
+        text = CAVEMAN_PROMPT_PATH.read_text(encoding="utf-8")
+    except OSError as exc:
+        log("call_compose", f"failed to read caveman injection: {exc}")
+        return ""
+    return parse_caveman_block(text, level)
 
 
 def extract_text(content: Any) -> str:
@@ -523,9 +566,9 @@ def command_compose(args: argparse.Namespace) -> int:
 
 
 def command_render_code_policy(args: argparse.Namespace) -> int:
-    prompt = code_policy_prompt()
-    if prompt:
-        print(prompt)
+    parts = [p for p in (code_policy_prompt(), caveman_prompt()) if p]
+    if parts:
+        print("\n\n".join(parts))
     return 0
 
 
@@ -621,6 +664,9 @@ def hook_compose() -> int:
         policy = code_policy_prompt()
         if policy:
             additions.append(policy)
+    caveman = caveman_prompt()
+    if caveman:
+        additions.append(f"[Retrieval Token Cutter | Caveman]\n{caveman}")
     data = {}
     if ensure_backend_for_hook():
         _sync_workspace_on_prompt(session_id)
