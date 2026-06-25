@@ -45,6 +45,32 @@ export SWE_SKIP_VALIDATION="${SWE_SKIP_VALIDATION:-1}"
 # RUN_IDX lets callers run multiple jobs concurrently with deterministic offsets.
 RUN_IDX="${RUN_IDX:-0}"
 export RUN_IDX
+if [ "${RTC_SWE_RUN_PARALLEL:-0}" = "1" ] && [ "${RTC_SWE_PARALLEL_CHILD:-0}" != "1" ]; then
+  RTC_SWE_PARALLEL_JOBS="${RTC_SWE_PARALLEL_JOBS:-2}"
+  if ! [[ "$RTC_SWE_PARALLEL_JOBS" =~ ^[0-9]+$ ]] || [ "$RTC_SWE_PARALLEL_JOBS" -lt 1 ]; then
+    echo "RTC_SWE_PARALLEL_JOBS must be a positive integer, got: $RTC_SWE_PARALLEL_JOBS" >&2
+    exit 2
+  fi
+  if [ "$RTC_SWE_PARALLEL_JOBS" -gt 1 ]; then
+    echo "[parallel] Launching $RTC_SWE_PARALLEL_JOBS SWE runs" >&2
+    pids=()
+    for ((i = 0; i < RTC_SWE_PARALLEL_JOBS; i++)); do
+      (
+        export RUN_IDX="$i"
+        export RTC_SWE_PARALLEL_CHILD=1
+        exec "$0" "$@"
+      ) &
+      pids+=("$!")
+    done
+    rc=0
+    for pid in "${pids[@]}"; do
+      if ! wait "$pid"; then
+        rc=1
+      fi
+    done
+    exit "$rc"
+  fi
+fi
 RTC_BASE_PORT="${RTC_BASE_PORT:-8090}"
 AGFS_BASE_PORT="${AGFS_BASE_PORT:-1833}"
 
@@ -386,6 +412,17 @@ export RTC_OPENCLAW_RESPECT_CONFIG_WORKSPACE=1
 OPENCLAW_AGENT_ID="${OPENCLAW_AGENT_ID:-swe-openclaw-rtc-r${RUN_IDX}-p$$}"
 OPENCLAW_SESSION_ID="${OPENCLAW_SESSION_ID:-swe-openclaw-rtc-r${RUN_IDX}-p$$}"
 OPENCLAW_TIMEOUT="${OPENCLAW_TIMEOUT:-900}"
+OPENCLAW_PROFILE_ARGS=()
+OPENCLAW_SESSION_STATE_DIR="${OPENCLAW_STATE_DIR:-$HOME/.openclaw}"
+if [ "${RTC_SWE_RUN_PARALLEL:-0}" = "1" ]; then
+  OPENCLAW_PROFILE="${OPENCLAW_PROFILE:-swe-rtc-r${RUN_IDX}}"
+  OPENCLAW_PROFILE_ARGS=(--profile "$OPENCLAW_PROFILE")
+  OPENCLAW_SESSION_STATE_DIR="${HOME}/.openclaw-${OPENCLAW_PROFILE}"
+  echo "[setup] OpenClaw parallel profile: $OPENCLAW_PROFILE" >&2
+fi
+oc() {
+  openclaw "${OPENCLAW_PROFILE_ARGS[@]}" "$@"
+}
 
 echo "[setup] Starting RTC backend for this OpenClaw SWE run: $RTC_RUNTIME_DIR" >&2
 "$PY_BIN" "$CLAUDE_PLUGIN_DIR/scripts/rtc_terminal.py" start --runtime-dir "$RTC_RUNTIME_DIR" --wait "${RTC_PLUGIN_START_WAIT:-60}" >&2
@@ -398,11 +435,19 @@ export RTC_OPENCLAW_AUTO_START=0
 export RTC_OPENCLAW_AUTO_STOP=0
 
 echo "[setup] Installing OpenClaw RTC plugin from $OPENCLAW_PLUGIN_DIR" >&2
-openclaw plugins uninstall retrieval-token-cutter --force \
+if [ "${RTC_SWE_RUN_PARALLEL:-0}" = "1" ]; then
+  OPENCLAW_SETUP_LOCK="${RTC_OPENCLAW_SETUP_LOCK:-${RTC_CACHE_HOME}/swe/openclaw/rtc/openclaw-setup.lock}"
+  mkdir -p "$(dirname "$OPENCLAW_SETUP_LOCK")"
+  exec 8>"$OPENCLAW_SETUP_LOCK"
+  echo "[setup] Waiting for OpenClaw setup lock: $OPENCLAW_SETUP_LOCK" >&2
+  flock 8
+  echo "[setup] Acquired OpenClaw setup lock" >&2
+fi
+oc plugins uninstall retrieval-token-cutter --force \
   > "$LOGS_DIR/openclaw-plugin-uninstall.log" 2>&1 || true
-openclaw plugins install --link "$OPENCLAW_PLUGIN_DIR" --dangerously-force-unsafe-install \
+oc plugins install --link "$OPENCLAW_PLUGIN_DIR" --dangerously-force-unsafe-install \
   > "$LOGS_DIR/openclaw-plugin-install.log" 2>&1
-openclaw plugins enable retrieval-token-cutter \
+oc plugins enable retrieval-token-cutter \
   > "$LOGS_DIR/openclaw-plugin-enable.log" 2>&1 || true
 
 json_string() {
@@ -420,41 +465,45 @@ json_bool() {
 }
 
 echo "[setup] Writing per-run OpenClaw RTC plugin config" >&2
-openclaw config set plugins.load.paths "[$(json_string "$OPENCLAW_PLUGIN_DIR")]" --strict-json \
+oc config set plugins.load.paths "[$(json_string "$OPENCLAW_PLUGIN_DIR")]" --strict-json \
   > "$LOGS_DIR/openclaw-config-load-paths.log" 2>&1
-openclaw config set plugins.entries.retrieval-token-cutter.config.workspaceRoot "$(json_string "$WORK_DIR")" --strict-json \
+oc config set plugins.entries.retrieval-token-cutter.config.workspaceRoot "$(json_string "$WORK_DIR")" --strict-json \
   > "$LOGS_DIR/openclaw-config-workspace.log" 2>&1
-openclaw config set plugins.entries.retrieval-token-cutter.config.runtimeDir "$(json_string "$RTC_RUNTIME_DIR")" --strict-json \
+oc config set plugins.entries.retrieval-token-cutter.config.runtimeDir "$(json_string "$RTC_RUNTIME_DIR")" --strict-json \
   > "$LOGS_DIR/openclaw-config-runtime.log" 2>&1
-openclaw config set plugins.entries.retrieval-token-cutter.config.rtcUrl "$(json_string "$RTC_URL")" --strict-json \
+oc config set plugins.entries.retrieval-token-cutter.config.rtcUrl "$(json_string "$RTC_URL")" --strict-json \
   > "$LOGS_DIR/openclaw-config-rtc-url.log" 2>&1
-openclaw config set plugins.entries.retrieval-token-cutter.config.autoStart false --strict-json \
+oc config set plugins.entries.retrieval-token-cutter.config.autoStart false --strict-json \
   > "$LOGS_DIR/openclaw-config-autostart.log" 2>&1
-openclaw config set plugins.entries.retrieval-token-cutter.config.autoStop false --strict-json \
+oc config set plugins.entries.retrieval-token-cutter.config.autoStop false --strict-json \
   > "$LOGS_DIR/openclaw-config-autostop.log" 2>&1
-openclaw config set plugins.entries.retrieval-token-cutter.config.injectCodePolicy false --strict-json \
+oc config set plugins.entries.retrieval-token-cutter.config.injectCodePolicy false --strict-json \
   > "$LOGS_DIR/openclaw-config-inject.log" 2>&1
-openclaw config set plugins.entries.retrieval-token-cutter.config.readToolPolicy "$(json_string "$RTC_OPENCLAW_READ_TOOL_POLICY")" --strict-json \
+oc config set plugins.entries.retrieval-token-cutter.config.readToolPolicy "$(json_string "$RTC_OPENCLAW_READ_TOOL_POLICY")" --strict-json \
   > "$LOGS_DIR/openclaw-config-read-tool-policy.log" 2>&1
-openclaw config set plugins.entries.retrieval-token-cutter.config.filterEnabled "$(json_bool "$RTC_FILTER_ENABLED")" --strict-json \
+oc config set plugins.entries.retrieval-token-cutter.config.filterEnabled "$(json_bool "$RTC_FILTER_ENABLED")" --strict-json \
   > "$LOGS_DIR/openclaw-config-filter-enabled.log" 2>&1
-openclaw config set plugins.entries.retrieval-token-cutter.config.filterNativeRead "$(json_bool "$RTC_FILTER_NATIVE_READ")" --strict-json \
+oc config set plugins.entries.retrieval-token-cutter.config.filterNativeRead "$(json_bool "$RTC_FILTER_NATIVE_READ")" --strict-json \
   > "$LOGS_DIR/openclaw-config-filter-read.log" 2>&1
-openclaw config set plugins.entries.retrieval-token-cutter.config.filterNativeExec "$(json_bool "$RTC_FILTER_NATIVE_BASH")" --strict-json \
+oc config set plugins.entries.retrieval-token-cutter.config.filterNativeExec "$(json_bool "$RTC_FILTER_NATIVE_BASH")" --strict-json \
   > "$LOGS_DIR/openclaw-config-filter-exec.log" 2>&1
 
-openclaw gateway restart \
+oc gateway restart \
   > "$LOGS_DIR/openclaw-gateway-restart.log" 2>&1 || true
 
-openclaw plugins inspect retrieval-token-cutter --runtime --json \
+oc plugins inspect retrieval-token-cutter --runtime --json \
   > "$LOGS_DIR/openclaw-plugin-runtime.json" 2> "$LOGS_DIR/openclaw-plugin-runtime.stderr" || true
 
 echo "[setup] Creating OpenClaw agent $OPENCLAW_AGENT_ID for $WORK_DIR" >&2
-openclaw agents add "$OPENCLAW_AGENT_ID" \
+oc agents add "$OPENCLAW_AGENT_ID" \
   --workspace "$WORK_DIR" \
   --model "$OPENCLAW_MODEL" \
   --non-interactive \
   --json > "$LOGS_DIR/openclaw-agent-add.json" 2> "$LOGS_DIR/openclaw-agent-add.stderr" || true
+if [ "${RTC_SWE_RUN_PARALLEL:-0}" = "1" ]; then
+  flock -u 8 || true
+  echo "[setup] Released OpenClaw setup lock" >&2
+fi
 
 if [ "$RTC_OPENCLAW_SOUL_POLICY" = "rtc" ]; then
 cat > "$WORK_DIR/SOUL.md" <<'EOF2'
@@ -474,7 +523,7 @@ set +e
 (
   cd "$WORK_DIR"
   export PYTHONPATH="$WORK_DIR${PYTHONPATH:+:$PYTHONPATH}"
-  openclaw agent --local \
+  oc agent --local \
     --agent "$OPENCLAW_AGENT_ID" \
     --session-id "$OPENCLAW_SESSION_ID" \
     --model "$OPENCLAW_MODEL" \
@@ -485,11 +534,20 @@ set +e
 RC=${PIPESTATUS[0]}
 set -e
 
-SESSION_JSONL="${HOME}/.openclaw/agents/${OPENCLAW_AGENT_ID}/sessions/${OPENCLAW_SESSION_ID}.jsonl"
-SESSION_TRAJECTORY_JSONL="${HOME}/.openclaw/agents/${OPENCLAW_AGENT_ID}/sessions/${OPENCLAW_SESSION_ID}.trajectory.jsonl"
-SESSION_TRAJECTORY_PATH_JSON="${HOME}/.openclaw/agents/${OPENCLAW_AGENT_ID}/sessions/${OPENCLAW_SESSION_ID}.trajectory-path.json"
+SESSION_JSONL="${OPENCLAW_SESSION_STATE_DIR}/agents/${OPENCLAW_AGENT_ID}/sessions/${OPENCLAW_SESSION_ID}.jsonl"
+SESSION_TRAJECTORY_JSONL="${OPENCLAW_SESSION_STATE_DIR}/agents/${OPENCLAW_AGENT_ID}/sessions/${OPENCLAW_SESSION_ID}.trajectory.jsonl"
+SESSION_TRAJECTORY_PATH_JSON="${OPENCLAW_SESSION_STATE_DIR}/agents/${OPENCLAW_AGENT_ID}/sessions/${OPENCLAW_SESSION_ID}.trajectory-path.json"
+DEFAULT_SESSION_JSONL="${HOME}/.openclaw/agents/${OPENCLAW_AGENT_ID}/sessions/${OPENCLAW_SESSION_ID}.jsonl"
+DEFAULT_SESSION_TRAJECTORY_JSONL="${HOME}/.openclaw/agents/${OPENCLAW_AGENT_ID}/sessions/${OPENCLAW_SESSION_ID}.trajectory.jsonl"
+DEFAULT_SESSION_TRAJECTORY_PATH_JSON="${HOME}/.openclaw/agents/${OPENCLAW_AGENT_ID}/sessions/${OPENCLAW_SESSION_ID}.trajectory-path.json"
 for _jsonl_retry in 1 2 3 4 5; do
   if [ -f "$SESSION_JSONL" ]; then
+    break
+  fi
+  if [ -f "$DEFAULT_SESSION_JSONL" ]; then
+    SESSION_JSONL="$DEFAULT_SESSION_JSONL"
+    SESSION_TRAJECTORY_JSONL="$DEFAULT_SESSION_TRAJECTORY_JSONL"
+    SESSION_TRAJECTORY_PATH_JSON="$DEFAULT_SESSION_TRAJECTORY_PATH_JSON"
     break
   fi
   sleep 1
